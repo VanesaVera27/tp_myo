@@ -1,0 +1,147 @@
+Entrada en calor
+Se tiene un conjunto I de ´ıtems, un conjunto O de bolsitas, y otro conjunto A de containers. Cada
+bolsita o tiene ´ıtems de I; el ´ıtem i ∈ I aparece uoi veces en la bolsita o ∈ O. Cada container a tiene
+´ıtems de I; el ´ıtem i ∈ I aparece uai veces en el container a ∈ A.
+Teniendo beneficios boi y ba (que pueden ser negativos) para el ´ıtem i en la bolsita o y para el
+container a, respectivamente, se pide resolver los siguientes problemas.
+1. Encontrar un container a ∈ A y un subconjunto de las bolsitas O0 ⊆ O tales que
+ la cantidad de veces que aparece cada ´ıtem i ∈ I en a alcance para cubrir las apariciones
+de i en O0
+;
+ se maximice la suma de los beneficios del container a y de los ´ıtems de las bolsitas de O0
+.
+2. Encontrar un subconjunto de containers A0 ∈ A y un subconjunto de las bolsitas O0 ⊆ O tales
+que
+ la cantidad de veces que aparece cada ´ıtem i ∈ I en A0 alcance para cubrir las apariciones
+de i en O0
+;
+ se maximice la suma de los beneficios de los containers de A0 y de los ´ıtems de las bolsitas
+de O0
+.
+Input
+ Primera l´ınea: contiene tres enteros o, i y a, que representan, respectivamente, el n´umero de
+bolsitas, ´ıtems y contenedores.
+ Pr´oximas o l´ıneas: cada l´ınea comienza con un entero k, seguido por k pares de enteros,
+representando el n´umero del ´ıtem y la cantidad de veces que aparece en la bolsita. Dentro de
+este grupo de l´ıneas y, para j ∈ {1, . . . , o}, la j-´esima l´ınea contiene datos relacionados con la
+bolsita indexada por j −1, significando que las bolsitas est´an numeradas de 0 a o−1. Adem´as,
+se asume que los ´ıtems est´an indexados de 0 a i − 1.
+ Pr´oximas a l´ıneas: cada l´ınea comienza con un entero l, seguido por l pares de enteros, representando el n´umero del ´ıtem y el n´umero de unidades disponibles en el contenedor. Similar al
+caso de las ´ordenes, dentro de este grupo de l´ıneas y, para j ∈ {1, . . . , a}, la j-´esima l´ınea contiene datos relacionados con el contenedor indexado por j −1, significando que los contenedores
+est´an numerados de 0 a a − 1.
+ Ultima l´ınea: contiene dos enteros, LB y UB, para m´as adelante. ´
+Por ahora, como no aparecen en el archivo de input del ejemplo, asuman que boi = ba = 1.
+El desaf´ıo
+El objetivo de este trabajo ser´a resolver el desaf´ıo planteado en este link, al que llamaremos Desaf´ıo.
+Hay datos adicionales en
+https://github.com/mercadolibre/challenge-sbpo-2025
+(tener en cuenta que nosotros podemos resolverlo con python y scip)
+
+1 Primera parte
+Aqu´ı supondremos que se conoce |A0|, es decir, la cantidad de pasillos a visitar. Llamaremos a este
+problema Desaf´ıo(|A0|). Modelar e implementar este problema.
+Desarrollar adem´as una funci´on o m´etodo que verifique que una soluci´on es factible.
+
+2 Segunda parte
+Aqu´ı supondremos que se conoce A0
+, es decir, los pasillos a visitar. Llamaremos a este problema
+Desaf´ıo(A0). Modelar e implementar este problema.
+
+3 Tercera parte
+Aqu´ı comenzaremos a desarrollar un modelo de generaci´on de columnas (patrones) para resolver
+Desaf´ıo(|A0|). Cada patr´on ser´a un par (O, a), donde O ⊆ O y a ∈ A, con con la propiedad de que
+las ´ordenes de O pueden ser servidas simult´aneamente con el pasillo a. La columna se presentar´a
+como vectores caracter´ısticos de O y a, es decir, ser´a un vector binario de tama˜no |O| + |A|, donde
+tendr´a 1 en la componente o ∈ O si o ∈ O, y an´alogamente tendr´a un 1 en la componente a, mientras
+que tendr´a 0 en el resto del vector.
+El modelo debe incorporar restricciones para seleccionar un subconjunto factible de los patrones.
+Desarrollar las siguientes funciones o m´etodos:
+ ConstruirModelo(. . . ).
+ AgregarColumna(columna c): agrega c al modelo.
+
+4 Cuarta parte
+El objetivo es resolver el problema Desaf´ıo. Se pide implementar la clase Basic, creada con el
+input del problema, que incluya los siguientes m´etodos:
+
+ Opt cantidadPasillosFija(k, umbral), que toma como par´ametro un entero k ∈ {1, . . . , |A|}
+y otro entero umbral y devuelve la mejor soluci´on que encuentra para el problema Desaf´ıo|A0|
+(ver secci´on 1), con |A0| = k, utilizando a lo sumo umbral segundos.
+
+ Opt PasillosFijos(umbral) que devuelve la mejor soluci´on que encuentra para el problema
+Desaf´ıo(A0) (ver secci´on 2), donde se asume que el modelo tiene seleccionados (fijos) sus
+pasillos (A0), utilizando a lo sumo umbral segundos.
+
+ Opt ExplorarCantidadPasillos(umbral) que devuelve la mejor soluci´on que encuentra para
+el problema Desaf´ıo, utilizando a lo sumo umbral segundos.
+En cada iteraci´on de este m´etodo se ejecutar´a Opt cantidadPasillosFija(k, umbral), donde
+los valores k ∈ {1, . . . , |A|} y umbral se elegir´an de acuerdo a la ejecuci´on previa de la funci´on
+Rankear, que estima el potencial de Opt cantidadPasillosFija(k, umbral).
+
+Finalmente, con el modelo de la mejor soluci´on encontrada, fijar los pasillos de dicha soluci´on,
+y para un valor de umbral adecuado, ejecutar Opt PasillosFijos(umbral).
+Asegurarse que el m´etodo Opt ExplorarCantidadPasillos(umbral) no exceda los umbral
+segundos.
+
+Notas:
+ Cuando un modelo se vuelve a ejecutar, conviene reutilizar lo hecho antes (sin crear nuevamente
+el modelo). Ver https://www.scipopt.org/doc/html/REOPT.php.
+ Para hacer m´as eficiente la ejecuci´on del primer modelo correspondiente al par´ametro k + 1,
+considerar usar la soluci´on del ´ultimo modelo usado para el par´ametro k.
+ Agregar m´etodos para continuar ejecutando Opt cantidadPasillosFija(k, ...) si ya se
+hab´ıa ejecutado antes para ese valor de k, guardando el estado anterior (reusando el modelo
+usado previamente).
+
+6 Sexta parte
+Considerar las siguientes alternativas para intentar mejorar la performance de la secci´on 5.
+1. Elegir las columnas iniciales de manera m´as eficiente.
+2. Mejorar la funci´on Rankear; considerar (opcionalmente) el uso alg´un agente de inteligencia
+artificial.
+3. Eliminar las columnas que no se usaron en las ´ultimas (5?) iteraciones (sus variables asociadas
+estuvieron en 0).
+El objetivo aqu´ı es evaluar cada una de estas variantes, agreg´andolas al modelo de la secci´on 5
+(solo una por vez), y teste´andolas para las primeras 4 instancias del dataset A. Para ello, se debe
+generar un script que tome como par´ametro un archivo de configuraci´on archivo.cfg, con las l´ıneas:
+inPath=/path/to/input/files/
+threshold=10
+model1=/path/to/model1.py
+outPath1=/path/to/output/files/
+model2=/path/to/model2.py
+outPath2=/path/to/output/files/
+:::
+Luego, por cada modelo i que aparezca en archivo.cfg, ejecutar /path/to/modeli.py con cada
+archivo de input que aparezca en inPath y generar su output como outPathi/file.out. Los 4
+modelos que deben aparecer son el modelo de la secci´on 5 y las 3 variantes descriptas al comienzo de
+esta parte. El script tambi´en generar´a un archivo csv que se usar´a para mostrar en el informe una
+tabla como la que sigue, donde el umbral de tiempo total para cada ejecuci´on ser´a de 10 minutos.
+
+Instancia   M´etrica                             seccion 5     Col. iniciales    Rankear     Eliminar col.    
+-----------------------------------------------------------------------------------------------------------
+nombre1     Restricciones
+            # variables
+            # variables en ´ult. maestro
+            Cota dual
+            Mejor objetivo
+-----------------------------------------------------------------------------------------------------------
+nombre2     Restricciones
+            # variables
+            # variables en ´ult. maestro
+            Cota dual
+            Mejor objetivo
+-----------------------------------------------------------------------------------------------------------
+nombre3     Restricciones
+            # variables
+            # variables en ´ult. maestro
+            Cota dual
+            Mejor objetivo
+-----------------------------------------------------------------------------------------------------------
+nombre4     Restricciones
+            # variables
+            # variables en ´ult. maestro
+            Cota dual
+            Mejor objetivo
+-----------------------------------------------------------------------------------------------------------
+
+Las 4 columnas corresponden a los 4 modelos a evaluar. Cada una de las 4 filas se subdivide en
+otras 4 filas, en las que se indicar´an la cantidad de restricciones, la cantidad de variables del modelo
+inicial, la cantidad de variables en el ´ultimo modelo, la cota dual, y el mejor valor objetivo obtenido.
+En cada fila de la tabla, destacar con negrita el mejor valor.

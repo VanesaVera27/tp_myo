@@ -1,0 +1,129 @@
+1. Introducci´on
+El recorrido de un paquete dentro de la red de entregas de mercado libre comienza mucho antes de la fase de transporte. Una vez que una Orden
+es generada por un cliente, entra en un backlog de ´ordenes a preparar y se le
+asigna un plazo de procesamiento basado en el tiempo de entrega prometido. La
+siguiente etapa involucra la recolecci´on en el almac´en (warehouse) de los items
+que componen la orden para su posterior embalaje y transporte. Obviamente, la
+recolecci´on de items ((llamado com´unmente tambi´en como proceso de picking
+de items) de una orden individual es menos eficiente que la recolecci´on realizada
+al agrupar subconjuntos de ´ordenes, llamados waves de ´ordenes o, simplemente,
+waves. Esto se debe a que la recolecci´on simult´anea de ´ordenes permite aprovechar las sinergias entre los lugares de recolecci´on de los items de las diferentes
+´ordenes. El proceso de seleccionar sucesivamente del backlog el siguiente subconjunto de ´ordenes a ser recolectados, a trav´es de una o varias rutas, se conoce
+como recolecci´on de ´ordenes en waves. Sin embargo, para maximizar la
+productividad de la operaci´on de recolecci´on, la selecci´on de las ´ordenes que
+compondr´an la pr´oxima wave debe hacerse de manera criteriosa. De esta manera, el enfoque de este desaf´ıo es proponer algoritmos para resolver el problema
+de encontrar una wave de ´ordenes ´optima, maximizando la productividad de la
+recolecci´on.
+
+2. Descripci´on del problema
+En esta secci´on, describiremos el problema en detalle.
+
+2.1. Definiciones y notaciones
+
+Comenzamos dando definiciones y notaciones b´asicas.
+
+Elemento: un producto que puede ser solicitado.
+
+Orden ´ : una lista espec´ıfica de elementos solicitados por un cliente junto con sus cantidades.
+Recolecci´on/picking: el proceso de recuperar productos del almac´en.
+Backlog: el conjunto de ´ordenes cuyos elementos a´un no han sido recolectados.
+Wave: un subconjunto de ´ordenes del backlog seleccionados para ser procesados (o enrutados) juntos, con el objetivo de maximizar la productividad de las operaciones de recolecci´on.
+Pasillo: para fines de este desaf´ıo, un almac´en puede ser concebido como un ´unico piso rectangular conteniendo filas paralelas de estanter´ıas compuestas por m´ultiples capas de estantes, cada una de ellas con un direcci´on
+
+asociada. En estos estantes se almacenan los elementos que pueden formar parte de un Orden. Los espacios libres entre dos filas de estanter´ıas ´
+consecutivas son llamados pasillos y permiten la circulaci´on de personas o
+equipos que realizan la recolecci´on de los elementos presentes en un Orden. ´
+En la Figura 1 se ve un ejemplo de un diagrama representando el piso del
+almac´en.
+A continuaci´on se presentan los conjuntos y constantes necesarias para definir
+el problema objetivo de este desaf´ıo.
+
+2.2. Conjuntos
+
+O Conjunto de ´ordenes en backlog.
+
+Io Subconjunto de elementos solicitados por el Orden´ o ∈ O.
+
+I Conjunto de elementos, donde I = La union de todos los elementos de todos las ordenes.
+
+Ai Subconjunto de pasillos conteniendo al menos una unidad del elemento i.
+
+A Conjunto de pasillos, donde A = La union de todos Ai donde i pertenece a I.
+.
+2.3. Constantes
+uoi N´umero de unidades del elemento i ∈ I solicitado por el Orden ´o ∈ O.
+uai N´umero de unidades del elemento i ∈ I disponibles en el pasillo a ∈ A.
+LB / UB L´ımite inferior / superior del tama˜no de la wave (definido a continuaci´on).
+
+2.4. Objetivo del problema y restricciones
+El objetivo del problema de recolecci´on de ´ordenes en waves es seleccionar
+un subconjunto de ´ordenes del backlog, es decir, la wave, y un subconjunto de
+pasillos (lugares de recolecci´on) que maximicen la productividad del proceso de
+recolecci´on. Esto se consigue al crear condiciones favorables para la generaci´on
+de rutas de recolecci´on eficientes. Para este desaf´ıo, vamos a explorar una de estas condiciones, que es concentrar los elementos de la wave en la menor cantidad
+posible de pasillos, respetando las restricciones descritas a continuaci´on.
+De manera m´as formal, sea O′ ⊂ O el subconjunto de ´ordenes en la wave, y
+A′ ⊂ A el subconjunto de pasillos que ser´an visitados para recolectar todos los
+elementos en O′
+. El objetivo es maximizar el n´umero de elementos recolectados
+por pasillo visitado, matem´aticamente representado por:
+
+Maximizar la sumatoria de todos los uoi / |A'| (1)
+
+
+Existen esencialmente tres familias de restricciones. Las dos primeras establecen l´ımites operacionales en el n´umero total de unidades que necesitan ser recolectadas para las ´ordenes incluidas en la wave. Se expresan como:
+Sumatoria de todos los uoi <= UB (2)
+Sumatoria de todos los uoi >= LB (3)
+
+La tercera familia de restricciones asegura que los pasillos seleccionados tengan almacenamiento suficiente para cada uno de los elementos incluidos en las
+´ordenes dentro de la wave. Esto se traduce en:
+
+Sumatoria de todos los uoi <= Sumatoria de todos los uai ∀i ∈ Io con o ∈ O′ (4)
+
+Cualquier par (O′, A′) de O × A que satisfaga las restricciones (2), (3) y (4)
+constituye una soluci´on factible para el problema de recolecci´on de ´ordenes en
+wave. En este contexto, la wave O′
+tambi´en se considera factible.
+Sin embargo, observe que puede haber m´ultiples candidatos para el subconjunto A′ de pasillos seleccionados que satisfagan la restricci´on (4) para la wave
+dada. Naturalmente, el objetivo es identificar entre estos subconjuntos uno que
+maximice la funci´on objetivo (1).
+
+
+3. Ejemplo
+Considere el siguiente ejemplo con 5 ´ordenes, 5 elementos diferentes y 5
+pasillos. El n´umero de unidades de cada elemento solicitado por cada Orden en ´
+el backlog se presenta en la Tabla 1, mientras que la disponibilidad de elementos
+en cada pasillo se presenta en la Tabla 2. Los l´ımites inferior y superior para el
+tama˜no de la wave son 5 y 12, respectivamente.
+Orden Elemento 0 Elemento 1 Elemento 2 Elemento 3 Elemento 4 ´
+0 3 0 1 0 0
+1 0 1 0 1 0
+2 0 0 1 0 2
+3 1 0 2 1 1
+4 0 1 0 0 0
+Cuadro 1: N´umero de unidades de cada elemento solicitado por cada Orden.
+Pasillo Elemento 0 Elemento 1 Elemento 2 Elemento 3 Elemento 4
+0 2 1 1 0 1
+1 2 1 2 0 1
+2 0 2 0 1 2
+3 2 1 0 1 1
+4 0 1 2 1 2
+Cuadro 2: N´umero de unidades de cada elemento disponible en cada pasillo.
+Algunos ejemplos de waves factibles, y sus asignaciones de pasillos, son:
+Ordenes 0 y 4, usando pasillos 0 y 1. ´
+• Total de unidades: 5;
+• N´umero de pasillos: 2;
+• Valor objetivo: 2.5.
+Ordenes 0, 2 y 3, usando pasillos 1, 3 y 4. ´
+• Total de unidades: 12;
+• N´umero de pasillos: 3;
+• Valor objetivo: 4.
+Ordenes 0, 1, 2 y 4, usando pasillos 1 y 3. ´
+• Total de unidades: 10;
+• N´umero de pasillos: 2;
+• Valor objetivo: 5.
+En la ´ultima soluci´on, el n´umero promedio de elementos recolectados por
+pasillo (el valor objetivo) es 5, mayor que los de las otras soluciones mostradas,
+haciendo que la ´ultima soluci´on sea preferible en comparaci´on con las dem´as.
+De hecho, se puede mostrar que esta soluci´on es ´optima para la instancia dada.
+

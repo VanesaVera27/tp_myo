@@ -1,0 +1,16 @@
+Instancia;Métrica;modelo0;modelo1
+a_instance_0001.txt;Restricciones;334;334
+;# variables inicial;23;23
+;# variables en últ. maestro;29;24
+;Mejor objetivo;8.0;8.0
+;Tiempo (s);14.43;15.9
+a_instance_0002.txt;Restricciones;54;54
+;# variables inicial;32;32
+;# variables en últ. maestro;33;33
+;Mejor objetivo;2.0;2.0
+;Tiempo (s);0.37;0.32
+a_instance_0003.txt;Restricciones;454;454
+;# variables inicial;19;19
+;# variables en últ. maestro;23;23
+;Mejor objetivo;12.0;12.0
+;Tiempo (s);18.29;17.51
