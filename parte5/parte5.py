@@ -6,7 +6,7 @@ from cargar_input import leer_input
 from guardar_output import guardar_resultado
 
 # Cargar datos desde archivo
-archivo_input = "datos_de_entrada/a/instance_0001.txt"
+archivo_input = "datos_de_entrada/b/instance_0002.txt"
 W, S, LB, UB = leer_input(archivo_input)
 
 # Instanciar y ejecutar

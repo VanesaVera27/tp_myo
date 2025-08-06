@@ -18,7 +18,13 @@ class Columns(ColumnsBase):
         self.inactive_counter = {}  # {(k, id_col): [0,1,0,...]}
         self.iteracion_actual = {}  # {k: int}
 
-    def actualizar_historial_inactividad(self, modelo_relajado, k):
+    def actualizar_historial_inactividad(self, modelo_relajado, k, tiempo_ini, umbral):
+        # Verificar tiempo restante
+        tiempo_restante = umbral - (time.time() - tiempo_ini)
+        if tiempo_restante <= 0:
+            print("⏱️ Tiempo agotado antes de actualizar historial de inactividad.")
+            return False  # Señal de que no se ejecutó
+
         columnas_activas = self.columnas[k]
         for idx, x in enumerate(modelo_relajado.getVars()):
             columna_id = id(columnas_activas[idx])
@@ -29,8 +35,16 @@ class Columns(ColumnsBase):
                 self.inactive_counter[key] = []
 
             self.inactive_counter[key].append(1 if val < 1e-5 else 0)
+        
+        return True  # Señal de que se ejecutó correctamente
 
-    def eliminar_columnas_inactivas_ultimas_iteraciones(self, k, umbral_iteraciones=5):
+    def eliminar_columnas_inactivas_ultimas_iteraciones(self, k, tiempo_ini, umbral, umbral_iteraciones=5):
+        # Verificar tiempo restante
+        tiempo_restante = umbral - (time.time() - tiempo_ini)
+        if tiempo_restante <= 0:
+            print("⏱️ Tiempo agotado antes de eliminar columnas inactivas.")
+            return False
+
         columnas_activas = self.columnas[k]
         nuevas_columnas = []
         eliminadas = 0
@@ -48,9 +62,13 @@ class Columns(ColumnsBase):
         self.columnas[k] = nuevas_columnas
         if eliminadas > 0:
             print(f"🗑️ Eliminadas {eliminadas} columnas inactivas al final de k={k}")
+        
+        return True
 
     def Opt_cantidadPasillosFija(self, k, umbral):
         tiempo_ini = time.time()
+        
+        # Reservar 30% del tiempo para inicializar columnas iniciales para k
         tiempo_inicializacion = 0.3 * umbral
         self.inicializar_columnas_para_k(k, umbral=tiempo_inicializacion)
 
@@ -61,18 +79,32 @@ class Columns(ColumnsBase):
             tiempo_actual = time.time()
             tiempo_transcurrido = tiempo_actual - tiempo_ini
             tiempo_restante_total = umbral - tiempo_transcurrido
+
             if tiempo_restante_total <= 0:
                 print("⏳ Tiempo agotado en Opt_cantidadPasillosFija → Fin del bucle.")
                 break
 
-            print(f"⌛ Iteración con {len(self.columnas[k])} columnas")
+            print(f"⌛ Iteración con {len(self.columnas.get(k, []))} columnas")
 
-            maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_cov = self.construir_modelo_maestro(k, tiempo_restante_total)
+            # Construcción del modelo maestro con las columnas actuales
+            maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = self.construir_modelo_maestro(k, umbral)
+
+            if maestro is None:
+                print("❌ No se pudo construir el modelo maestro a tiempo → Fin del bucle.")
+                break
+
+            # Crear una copia para relajación y obtención de duales
             maestro_relajado = Model(sourceModel=maestro)
+
+            # Desactivar ciertas heurísticas y preprocesos para obtener duales confiables
             maestro_relajado.setPresolve(SCIP_PARAMSETTING.OFF)
             maestro_relajado.setHeuristics(SCIP_PARAMSETTING.OFF)
             maestro_relajado.disablePropagation()
-            maestro_relajado.relax()
+
+            # Relajar modelo maestro (variables binarias a continuas)
+            for var in maestro_relajado.getVars():
+                maestro_relajado.chgVarType(var, "CONTINUOUS")
+            
             maestro_relajado.optimize()
 
             if primera_iteracion:
@@ -94,77 +126,22 @@ class Columns(ColumnsBase):
 
             mejor_sol = construir_mejor_solucion(maestro_relajado, self.columnas[k], valor_objetivo, self.cant_var_inicio)
 
-            print("❤️ Cantidad de columnas antes de agregar:", len(self.columnas[k]))
-
             self.iteracion_actual[k] = self.iteracion_actual.get(k, 0) + 1
-            self.actualizar_historial_inactividad(maestro_relajado, k)
-
-            print("❤️ Cantidad de columnas después de historial:", len(self.columnas[k]))
+            self.actualizar_historial_inactividad(maestro_relajado, k, tiempo_ini, umbral)
 
             nueva_col = self.resolver_subproblema(self.W, self.S, pi, self.UB, k, tiempo_restante_total)
             if nueva_col is None:
                 print("No se generó una columna mejoradora o era repetida → Fin del bucle.")
                 break
 
-            print("Nueva columna: ", nueva_col)
-            print("➕ Columna nueva encontrada, se agrega.")
-            self.agregar_columna(maestro, nueva_col, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_cov, k)
-            print("💙 Cantidad de columnas después de agregar:", len(self.columnas[k]))
+            # Agregar nueva columna
+            print("Nueva columna encontrada:", nueva_col)
+            print("➕ Agregando columna nueva al modelo maestro.")
+            self.agregar_columna(maestro, nueva_col, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos, k)
 
         iter_k = self.iteracion_actual.get(k, 0)
         if iter_k >= 5:
-            self.eliminar_columnas_inactivas_ultimas_iteraciones(k, umbral_iteraciones=5)
+            self.eliminar_columnas_inactivas_ultimas_iteraciones(k, tiempo_ini, umbral, umbral_iteraciones=5)
 
         return mejor_sol
 
-    def Opt_ExplorarCantidadPasillos(self, umbral):
-        self.inactive_counter = {}
-        self.iteracion_actual = {}
-        self.columnas = {}
-        best_sol = None
-        tiempo_ini = time.time()
-
-        lista_k, lista_umbrales = self.Rankear(umbral)
-
-        for k, tiempo_k in zip(lista_k, lista_umbrales):
-            tiempo_restante = umbral - (time.time() - tiempo_ini)
-            if tiempo_restante <= 0:
-                print("⏳ Sin tiempo restante para seguir evaluando k.")
-                break
-
-            print(f"Evaluando k={k} con tiempo asignado {tiempo_k:.2f} segundos")
-            sol = self.Opt_cantidadPasillosFija(k, tiempo_k)
-
-            if sol is not None:
-                print("✅ Se encontró solución")
-            else:
-                print("❌ No se encontró una solución dentro del tiempo límite.")
-
-            if sol:
-                sol_obj = sol["valor_objetivo"]
-                best_obj = best_sol["valor_objetivo"] if best_sol else -float('inf')
-                if sol_obj > best_obj:
-                    best_sol = sol
-
-        if best_sol:
-            tiempo_usado = time.time() - tiempo_ini
-            tiempo_final = max(1.0, umbral - tiempo_usado)
-            print("✅ Resultado final realajado:", best_sol)
-            print(f"⏳ Tiempo restante para Opt_PasillosFijos: {tiempo_final:.2f}s")
-
-            self.pasillos_fijos = best_sol["pasillos_seleccionados"]
-            resultado_final = self.Opt_PasillosFijos(tiempo_final)
-
-            if resultado_final is None:
-                print("⚠️ Opt_PasillosFijos no devolvió una solución válida.")
-                return {
-                    "valor_objetivo": 0,
-                    "ordenes_seleccionadas": set(),
-                    "pasillos_seleccionados": set(),
-                    "variables": best_sol.get("variables", 0),
-                    "variables_final": best_sol.get("variables_final", 0),
-                    "cota_dual": best_sol.get("cota_dual", 0)
-                }
-
-            resultado_final["tiempo_total"] = round(time.time() - tiempo_ini, 2)
-            return resultado_final

@@ -76,7 +76,7 @@ def es_factible(x_sol, y_sol, W, S, LB, UB, max_pasillos):
 
 
 if __name__ == "__main__":
-    archivo_input = "datos_de_entrada/A/instance_0004.txt"
+    archivo_input = "datos_de_entrada/A/instance_0001.txt"
     W, S, LB, UB = leer_input(archivo_input)
     max_pasillos = 2
 

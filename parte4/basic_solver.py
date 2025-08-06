@@ -119,6 +119,43 @@ class Basic:
             return sol
         else:
             return None
+        
+    # def Opt_PasillosFijos(self, umbral):
+    #     start = time.time()
+    #     if not self.mejores_pasillos:
+    #         raise RuntimeError("Primero ejecuta Opt_ExplorarCantidadPasillos o fija los pasillos.")
+
+    #     modelo = Model("Opt_PasillosFijos")
+    #     modelo.setPresolve(SCIP_PARAMSETTING.OFF)
+    #     modelo.setParam('display/verblevel', 0)
+        
+    #     x = {o: modelo.addVar(vtype="B", name=f"x_{o}") for o in range(self.n_ordenes)}
+
+    #     total = quicksum(x[o] * sum(self.W[o][i] for i in range(self.n_elementos)) for o in range(self.n_ordenes))
+    #     modelo.setObjective(total, "maximize")
+
+    #     modelo.addCons(total >= self.LB, name="LB")
+    #     modelo.addCons(total <= self.UB, name="UB")
+
+    #     for i in range(self.n_elementos):
+    #         capacidad = sum(self.S[a][i] for a in self.mejores_pasillos)
+    #         modelo.addCons(quicksum(self.W[o][i] * x[o] for o in range(self.n_ordenes)) <= capacidad, name=f"cap_{i}")
+
+    #     if time.time() - start > umbral:
+    #         return None
+
+    #     modelo.optimize()
+    #     if modelo.getStatus() != "optimal":
+    #         return None
+
+    #     ordenes = [o for o in range(self.n_ordenes) if modelo.getVal(x[o]) > 0.5]
+    #     valor = modelo.getObjVal()
+
+    #     return {
+    #         "valor_objetivo": valor/len(self.mejores_pasillos),
+    #         "ordenes_seleccionadas": ordenes,
+    #         "pasillos_seleccionados": self.mejores_pasillos
+    #     }
 
     def Opt_ExplorarCantidadPasillos(self, umbral_total):
         start = time.time()
