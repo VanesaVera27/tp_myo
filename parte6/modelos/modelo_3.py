@@ -112,7 +112,8 @@ class Columns(ColumnsBase):
                 primera_iteracion = False
 
             if maestro_relajado.getStatus() == "optimal":
-                pi = [maestro_relajado.getDualsolLinear(c) for c in maestro_relajado.getConss()]
+                dual_map = {}
+                dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
             else:
                 print("⚠️ No se encontró solución. Estado del modelo:", maestro_relajado.getStatus())
                 return None
@@ -129,7 +130,7 @@ class Columns(ColumnsBase):
             self.iteracion_actual[k] = self.iteracion_actual.get(k, 0) + 1
             self.actualizar_historial_inactividad(maestro_relajado, k, tiempo_ini, umbral)
 
-            nueva_col = self.resolver_subproblema(self.W, self.S, pi, self.UB, k, tiempo_restante_total)
+            nueva_col = self.resolver_subproblema(self.W, self.S, dual_map, self.UB, k, tiempo_restante_total)
             if nueva_col is None:
                 print("No se generó una columna mejoradora o era repetida → Fin del bucle.")
                 break
@@ -137,7 +138,8 @@ class Columns(ColumnsBase):
             # Agregar nueva columna
             print("Nueva columna encontrada:", nueva_col)
             print("➕ Agregando columna nueva al modelo maestro.")
-            self.agregar_columna(maestro, nueva_col, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos, k)
+            self.columnas.setdefault(k, []).append(nueva_col)
+
 
         iter_k = self.iteracion_actual.get(k, 0)
         if iter_k >= 5:
