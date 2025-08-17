@@ -1,31 +1,31 @@
 Instancia;Métrica;modelo0;modelo1
 a_instance_0001.txt;Restricciones;184;184
 ;# variables inicial;23;23
-;# variables en últ. maestro;23;23
-;Mejor objetivo;8.0;8.0
-;Tiempo (s);9.27;8.75
+;# variables en últ. maestro;23;25
+;Mejor objetivo;8.0;9.285714285714286
+;Tiempo (s);5.28;7.82
 a_instance_0002.txt;Restricciones;45;45
 ;# variables inicial;32;32
 ;# variables en últ. maestro;32;32
-;Mejor objetivo;2.0;2.0
-;Tiempo (s);0.57;0.56
-a_instance_0003.txt;Restricciones;210;210
+;Mejor objetivo;2.0;1.0
+;Tiempo (s);0.27;0.28
+a_instance_0003.txt;Restricciones;210;212
 ;# variables inicial;19;19
-;# variables en últ. maestro;19;19
-;Mejor objetivo;12.0;12.0
-;Tiempo (s);15.96;15.22
+;# variables en últ. maestro;19;20
+;Mejor objetivo;12.0;6.625
+;Tiempo (s);9.5;43.42
 b_instance_0001.txt;Restricciones;;
 ;# variables inicial;0;0
 ;# variables en últ. maestro;0;0
 ;Mejor objetivo;0;0
-;Tiempo (s);297.66;296.23
+;Tiempo (s);298.9;285.81
 b_instance_0002.txt;Restricciones;2337;2333
-;# variables inicial;120;38
-;# variables en últ. maestro;122;39
-;Mejor objetivo;14.808510638297872;63.5
-;Tiempo (s);347.83;230.66
-b_instance_0003.txt;Restricciones;0;2239
-;# variables inicial;106;31
-;# variables en últ. maestro;0;32
-;Mejor objetivo;0;47.75
-;Tiempo (s);371.49;220.9
+;# variables inicial;120;17
+;# variables en últ. maestro;123;18
+;Mejor objetivo;14.808510638297872;64.875
+;Tiempo (s);325.58;307.08
+b_instance_0003.txt;Restricciones;0;2237
+;# variables inicial;106;40
+;# variables en últ. maestro;0;41
+;Mejor objetivo;0;89.83333333333333
+;Tiempo (s);334.12;308.17
