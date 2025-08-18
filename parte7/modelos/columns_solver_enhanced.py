@@ -18,19 +18,25 @@ except ImportError:
     from parte5.columns_solver import tiempo_excedido
 
 
-def construir_mejor_solucion(modelo_relajado, columnas_k, valor_objetivo, cant_var_inicio):
+def construir_mejor_solucion(modelo_relajado, columnas_k, valor_objetivo, cant_var_inicio, normalizar=True):
     """
     Construye la mejor solución a partir del modelo relajado y las columnas actuales.
     Compatible con columnas multi-pasillo.
+    
+    Parámetros:
+        modelo_relajado : Modelo PySCIPOpt ya optimizado (relajado)
+        columnas_k      : Lista de columnas actuales para k
+        valor_objetivo  : Valor objetivo del modelo relajado
+        cant_var_inicio : Cantidad de columnas iniciales usadas
+        normalizar      : Booleano, si True divide valor objetivo por cantidad de pasillos seleccionados
     """
     mejor_sol = {
-        'valor_objetivo': valor_objetivo,
         'columnas_seleccionadas': [],
         'pasillos_seleccionados': set(),
-        'variables': cant_var_inicio  # <-- aquí guardamos la cantidad de columnas iniciales
+        'variables': cant_var_inicio
     }
 
-    # Iterar sobre las columnas
+    # Iterar sobre las columnas y seleccionar las activas
     for idx, col in enumerate(columnas_k):
         var_val = modelo_relajado.getVal(modelo_relajado.getVars()[idx])
         if var_val > 0.5:  # columna seleccionada
@@ -45,7 +51,15 @@ def construir_mejor_solucion(modelo_relajado, columnas_k, valor_objetivo, cant_v
 
     mejor_sol['num_columnas'] = len(mejor_sol['columnas_seleccionadas'])
 
+    # Valor objetivo, normalizado si se solicita
+    if normalizar:
+        num_pasillos = len(mejor_sol['pasillos_seleccionados'])
+        mejor_sol['valor_objetivo'] = valor_objetivo / num_pasillos if num_pasillos else 0
+    else:
+        mejor_sol['valor_objetivo'] = valor_objetivo
+
     return mejor_sol
+
 
 
 
@@ -183,7 +197,7 @@ class Columns(ColumnsBase):
         
         return True
 
-    def Opt_cantidadPasillosFija(self, k, umbral):
+    def Opt_cantidadPasillosFija(self, k, umbral, normalizar=True):
         tiempo_ini = time.time()
         
         # Reservar 30% del tiempo para inicializar columnas iniciales para k
@@ -205,7 +219,7 @@ class Columns(ColumnsBase):
             print(f"⌛ Iteración con {len(self.columnas.get(k, []))} columnas")
 
             # Construcción del modelo maestro con las columnas actuales
-            maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = self.construir_modelo_maestro(k, umbral)
+            maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = self.construir_modelo_maestro(k, tiempo_restante_total)
 
             if maestro is None:
                 print("❌ No se pudo construir el modelo maestro a tiempo → Fin del bucle.")
@@ -214,12 +228,12 @@ class Columns(ColumnsBase):
             # Crear una copia para relajación y obtención de duales
             maestro_relajado = Model(sourceModel=maestro)
 
-            # Desactivar ciertas heurísticas y preprocesos para obtener duales confiables
+            # Desactivar heurísticas y preprocesos para duales confiables
             maestro_relajado.setPresolve(SCIP_PARAMSETTING.OFF)
             maestro_relajado.setHeuristics(SCIP_PARAMSETTING.OFF)
             maestro_relajado.disablePropagation()
 
-            # Relajar modelo maestro (variables binarias a continuas)
+            # Relajar variables binarias a continuas
             for var in maestro_relajado.getVars():
                 maestro_relajado.chgVarType(var, "CONTINUOUS")
             
@@ -229,25 +243,34 @@ class Columns(ColumnsBase):
                 self.cant_var_inicio = maestro_relajado.getNVars()
                 primera_iteracion = False
 
-            if maestro_relajado.getStatus() == "optimal":
-                dual_map = {}
-                dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
-            else:
-                print("⚠️ No se encontró solución. Estado del modelo:", maestro_relajado.getStatus())
-                return None
-
             if maestro_relajado.getStatus() in ["optimal", "feasible"]:
                 valor_objetivo = maestro_relajado.getObjVal()
                 print("Valor objetivo", valor_objetivo)
+
+                # Obtener valores duales si es óptimo
+                dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()} if maestro_relajado.getStatus() == "optimal" else {}
+
             else:
                 print("⚠️ Modelo no óptimo ni factible.")
                 return None
 
-            mejor_sol = construir_mejor_solucion(maestro_relajado, self.columnas[k], valor_objetivo, self.cant_var_inicio)
+            # Construir mejor solución usando la función adaptada multi-pasillo
+            mejor_sol = construir_mejor_solucion(
+                maestro_relajado,
+                self.columnas[k],
+                valor_objetivo,
+                self.cant_var_inicio,
+                normalizar=normalizar
+            )
 
+            # Guardar cantidad de columnas iniciales usadas
+            mejor_sol['variables'] = self.cant_var_inicio
+
+            # Actualizar historial de iteraciones
             self.iteracion_actual[k] = self.iteracion_actual.get(k, 0) + 1
             self.actualizar_historial_inactividad(maestro_relajado, k, tiempo_ini, umbral)
 
+            # Resolver subproblema para generar columna mejoradora
             nueva_col = self.resolver_subproblema(self.W, self.S, dual_map, self.UB, k, tiempo_restante_total)
             if nueva_col is None:
                 print("No se generó una columna mejoradora o era repetida → Fin del bucle.")
@@ -259,6 +282,7 @@ class Columns(ColumnsBase):
             self.columnas.setdefault(k, []).append(nueva_col)
 
 
+        # Eliminar columnas inactivas si se superó cierto número de iteraciones
         iter_k = self.iteracion_actual.get(k, 0)
         if iter_k >= 5:
             self.eliminar_columnas_inactivas_ultimas_iteraciones(k, tiempo_ini, umbral, umbral_iteraciones=5)
@@ -409,29 +433,35 @@ class Columns(ColumnsBase):
         return columna
 
 
-    def Opt_PasillosFijos(self, umbral):
+    def Opt_PasillosFijos(self, umbral, normalizar=True):
         tiempo_ini = time.time()
         k = len(self.pasillos_fijos)
-        solucion_vacia = {"valor_objetivo": 0,"pasillos_seleccionados": set(),"ordenes_seleccionadas": set(),"restricciones": 0,"variables": 0,"variables_final": 0,"cota_dual": 0}
-        
-        # Calcular tiempo restante correctamente (usamos tiempo_ini para referencia)
+        solucion_vacia = {
+            "valor_objetivo": 0,
+            "pasillos_seleccionados": set(),
+            "ordenes_seleccionadas": set(),
+            "restricciones": 0,
+            "variables": 0,
+            "variables_final": 0,
+            "cota_dual": 0
+        }
+
+        # Calcular tiempo restante
         tiempo_restante_final = umbral - (time.time() - tiempo_ini)
         if tiempo_restante_final <= 0:
             print("⏳ No queda tiempo para Opt_PasillosFijos")
             return solucion_vacia
 
-        # Validar que haya columnas para k
         if k not in self.columnas or not self.columnas[k]:
             print(f"❌ No hay columnas generadas para k = {k}")
             return solucion_vacia
 
-        # Construir el modelo maestro con las columnas actuales
+        # Construir el modelo maestro
         modelo, x_vars, _, _, _, _ = self.construir_modelo_maestro(k, tiempo_restante_final)
-
         if modelo is None:
-            print("❌ No se pudo construir el modelo maestro en Opt_PasillosFijos → tiempo agotado o error.")
+            print("❌ No se pudo construir el modelo maestro → tiempo agotado o error.")
             return solucion_vacia
-        
+
         modelo.setPresolve(SCIP_PARAMSETTING.OFF)
         modelo.setHeuristics(SCIP_PARAMSETTING.OFF)
         modelo.disablePropagation()
@@ -450,7 +480,6 @@ class Columns(ColumnsBase):
                     pasillos = self.columnas[k][idx]['pasillo']
                     if isinstance(pasillos, int):
                         pasillos = [pasillos]
-
                     for p in pasillos:
                         pasillos_seleccionados.add(p)
 
@@ -458,15 +487,23 @@ class Columns(ColumnsBase):
                         if seleccionado:
                             ordenes_seleccionadas.add(o)
 
+            # Normalizar valor objetivo si se solicita
+            if normalizar:
+                num_pasillos = len(pasillos_seleccionados)
+                valor_obj = obj_val / num_pasillos if num_pasillos else 0
+            else:
+                valor_obj = obj_val
+
             mejor_sol = {
-                "valor_objetivo": obj_val / len(pasillos_seleccionados) if pasillos_seleccionados else 0,
+                "valor_objetivo": valor_obj,
                 "pasillos_seleccionados": pasillos_seleccionados,
                 "ordenes_seleccionadas": ordenes_seleccionadas,
                 "restricciones": modelo.getNConss(),
-                "variables": 0,
+                "variables": 0,  # podrías usar self.cant_var_inicio si querés controlar columnas iniciales
                 "variables_final": modelo.getNVars(),
                 "cota_dual": modelo.getDualbound()
             }
+
         else:
             print(f"⚠️ Modelo no óptimo ni factible. Estado: {status}")
             mejor_sol = {
@@ -480,6 +517,7 @@ class Columns(ColumnsBase):
             }
 
         return mejor_sol
+
     
     def Opt_ExplorarCantidadPasillos(self, umbral):
         self.columnas = {}
