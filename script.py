@@ -86,7 +86,7 @@ def ejecutar_todos_modelos(config):
                 W, S, LB, UB = leer_input(input_file)
 
                 start_time = time.time()
-                resultado = ejecutar_modelo(modulo, W, S, LB, UB, threshold / len(modelos))
+                resultado = ejecutar_modelo(modulo, W, S, LB, UB, threshold)
                 elapsed = time.time() - start_time
 
                 if resultado is None:

@@ -93,11 +93,13 @@ class Columns:
                         cap_restante[i] -= self.W[o][i]
                     break  # Solo una orden
 
-            self.columnas[k].append({
-                'pasillo': a,
-                'ordenes': sel,
-                'unidades': total_unidades
-            })
+            # Solo agregar columna si el pasillo realmente cubrió una orden
+            if total_unidades > 0:
+                self.columnas[k].append({
+                    'pasillo': a,
+                    'ordenes': sel,
+                    'unidades': total_unidades
+                })
 
         print(f"✅ {len(self.columnas[k])} columnas iniciales creadas (una por pasillo, con una orden) para k = {k}")
 
@@ -228,13 +230,6 @@ class Columns:
         ordenes = [int(modelo.getVal(z[o]) + 0.5) for o in range(O)]
         unidades = sum(units_o[o] for o in range(O) if ordenes[o])
 
-        # Gap con dual real
-        valor_primal = sum(units_o[o] for o in range(O) if ordenes[o])
-        valor_dual = sum(dual_vals.get(f"orden_{o}", 0) * ordenes[o] for o in range(O)) \
-                    + dual_vals.get("card_k", 0) + dual_vals.get("restr_total_ub", 0) * unidades \
-                    + dual_vals.get(f"pasillo_{pasillo_seleccionado}", 0)
-        print(f"   Primal subproblema = {valor_primal:.6f}, Dual estimado = {valor_dual:.6f}, Gap = {valor_primal - valor_dual:.6e}")
-
         return {'pasillo': pasillo_seleccionado, 'ordenes': ordenes, 'unidades': unidades}
 
 
@@ -294,16 +289,16 @@ class Columns:
                 dual_contrib += dual_map.get(f"pasillo_{col['pasillo']}", 0)
                 rc = c_j - dual_contrib
                 rc_columnas.append(rc)
-                if rc > 1e-6:
-                    print(f"⚠️ Violación condición [b] en columna {j}: rc = {rc}")
+                if dual_contrib < c_j:
+                    print(f"🚀🚀🚀 Violación condición [b] en columna {j}: rc = {rc}")
 
             valor_objetivo_dual = valor_objetivo_primal - sum(x_vals[j] * rc_columnas[j] for j in range(len(rc_columnas)))
             gap_real = valor_objetivo_primal - valor_objetivo_dual
 
-            print("🔎 Chequeo primal-dual REAL:")
-            print(f"   Primal = {valor_objetivo_primal:.6f}")
-            print(f"   Dual   = {valor_objetivo_dual:.6f}")
-            print(f"   Gap    = {gap_real:.6e}")
+            # print("🔎 Chequeo primal-dual REAL:")
+            # print(f"   Primal = {valor_objetivo_primal:.6f}")
+            # print(f"   Dual   = {valor_objetivo_dual:.6f}")
+            # print(f"   Gap    = {gap_real:.6e}")
 
             # Construir mejor solución según x* del maestro
             mejor_sol = construir_mejor_solucion(maestro_relajado, self.columnas.get(k, []), valor_objetivo_primal, self.cant_var_inicio)
