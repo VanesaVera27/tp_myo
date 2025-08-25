@@ -499,7 +499,7 @@ class Columns(ColumnsBase):
                 "pasillos_seleccionados": pasillos_seleccionados,
                 "ordenes_seleccionadas": ordenes_seleccionadas,
                 "restricciones": modelo.getNConss(),
-                "variables": 0,  # podrías usar self.cant_var_inicio si querés controlar columnas iniciales
+                "variables": 0,  
                 "variables_final": modelo.getNVars(),
                 "cota_dual": modelo.getDualbound()
             }

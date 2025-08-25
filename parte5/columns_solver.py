@@ -4,27 +4,53 @@ from pyscipopt import Model, quicksum, SCIP_PARAMSETTING
 def tiempo_excedido(tiempo_ini, umbral):
     return time.time() - tiempo_ini > umbral
 
-def construir_mejor_solucion(modelo_relajado, columnas_k, obj_val, cant_var_inicio):
+def construir_mejor_solucion(modelo_relajado, columnas_k, valor_obj_primal, cant_var_inicio):
     pasillos_seleccionados = set()
     ordenes_seleccionadas = set()
 
     for idx, x in enumerate(modelo_relajado.getVars()):
-        if x.getLPSol() and x.getLPSol() > 1e-5:
+        val = modelo_relajado.getVal(x)
+        if val and val > 1e-5:
             pasillos_seleccionados.add(columnas_k[idx]['pasillo'])
-            for o, val in enumerate(columnas_k[idx]['ordenes']):
-                if val:
+            for o, seleccionado in enumerate(columnas_k[idx]['ordenes']):
+                if seleccionado:
                     ordenes_seleccionadas.add(o)
 
+    cota_dual_real = modelo_relajado.getDualbound()
+    gap_real = valor_obj_primal - cota_dual_real
+
     mejor_sol = {
-        "valor_objetivo": obj_val / len(pasillos_seleccionados) if pasillos_seleccionados else 0,
+        "valor_objetivo": valor_obj_primal / len(pasillos_seleccionados) if pasillos_seleccionados else 0,
         "pasillos_seleccionados": pasillos_seleccionados,
         "ordenes_seleccionadas": ordenes_seleccionadas,
         "variables": cant_var_inicio,
         "variables_final": modelo_relajado.getNVars(),
-        "cota_dual": modelo_relajado.getDualbound()
+        "cota_dual": cota_dual_real,
+        "gap_real": gap_real
     }
 
+    print(f"🔹 Mejor solución construida: Primal={valor_obj_primal:.6f}, Dual={cota_dual_real:.6f}, Gap={gap_real:.6e}")
+
     return mejor_sol
+
+
+def costo_reducido(col, dual_map, W, I, O):
+    """
+    Calcula el costo reducido de una columna 'col'
+    respecto a los duales actuales del maestro relajado.
+    """
+    # costo de la columna en la FO del maestro
+    c_j = sum(W[o][i] for o in range(O) if col['ordenes'][o] for i in range(I))
+
+    # contribución dual
+    Ajy = 0
+    Ajy += dual_map.get("card_k", 0)
+    Ajy += sum(col['ordenes'][o] * dual_map.get(f"orden_{o}", 0) for o in range(O))
+    Ajy += col['unidades'] * dual_map.get("restr_total_ub", 0)
+    Ajy += dual_map.get(f"pasillo_{col['pasillo']}", 0)
+
+    return c_j - Ajy
+
 
 class Columns:
     def __init__(self, W, S, LB, UB):
@@ -146,9 +172,10 @@ class Columns:
 
         return modelo, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos
     
+
+    
     def resolver_subproblema(self, W, S, dual_vals, UB, k, umbral=None):
         tiempo_ini = time.time()
-
         O = len(W)
         I = len(W[0])
         A = len(S)
@@ -159,49 +186,32 @@ class Columns:
 
         units_o = [sum(W[o][i] for i in range(I)) for o in range(O)]
 
-        pi_card_k = dual_vals["card_k"]
-        pi_ordenes = [dual_vals[f"orden_{o}"] for o in range(O)]
-        pi_ub = dual_vals["restr_total_ub"]
-        pi_pasillos = [dual_vals[f"pasillo_{a}"] for a in range(A)]
-
         modelo = Model("Subproblema_unico")
         modelo.setParam("display/verblevel", 0)
 
         y = {a: modelo.addVar(vtype="B", name=f"y_{a}") for a in range(A)}
         z = {o: modelo.addVar(vtype="B", name=f"z_{o}") for o in range(O)}
 
-        if tiempo_excedido(tiempo_ini, umbral):
-            print("⏱️ Tiempo excedido al crear variables.")
-            return None
-
         modelo.addCons(quicksum(y[a] for a in range(A)) == 1, name="unico_pasillo")
 
         for i in range(I):
-            if tiempo_excedido(tiempo_ini, umbral):
-                print("⏱️ Tiempo excedido durante restricciones de capacidad.")
-                return None
-
             modelo.addCons(
                 quicksum(W[o][i] * z[o] for o in range(O)) <=
                 quicksum(S[a][i] * y[a] for a in range(A)),
                 name=f"capacidad_total_item_{i}"
             )
 
-        modelo.addCons(quicksum(units_o[o] * z[o] for o in range(O)) <= UB, name="limite_unidades")
+        modelo.addCons(quicksum(units_o[o] * z[o] for o in range(O)) <= UB,
+                    name="limite_unidades")
 
-        if tiempo_excedido(tiempo_ini, umbral):
-            print("⏱️ Tiempo excedido antes de función objetivo.")
-            return None
+        # --- FO: costo reducido con duales reales ---
+        expr_cj = quicksum(units_o[o] * z[o] for o in range(O))
+        expr_Ajy = dual_vals.get("card_k", 0) \
+            + quicksum(dual_vals.get(f"orden_{o}", 0) * z[o] for o in range(O)) \
+            + dual_vals.get("restr_total_ub", 0) * quicksum(units_o[o] * z[o] for o in range(O)) \
+            + quicksum(dual_vals.get(f"pasillo_{a}", 0) * y[a] for a in range(A))
 
-        modelo.setObjective(
-            quicksum(units_o[o] * z[o] for o in range(O))
-            - pi_card_k
-            - quicksum(pi_ordenes[o] * z[o] for o in range(O))
-            - pi_ub * quicksum(units_o[o] * z[o] for o in range(O))
-            - quicksum(pi_pasillos[a] * y[a] for a in range(A)),
-            sense="maximize"
-        )
-
+        modelo.setObjective(expr_cj - expr_Ajy, sense="maximize")
         modelo.optimize()
 
         if modelo.getStatus() != "optimal":
@@ -209,7 +219,8 @@ class Columns:
             return None
 
         reduced_cost = modelo.getObjVal()
-        print("Costo reducido", reduced_cost)
+        print(f"🔹 Costo reducido subproblema: {reduced_cost:.6f}")
+
         if reduced_cost <= 1e-6:
             return None
 
@@ -217,9 +228,15 @@ class Columns:
         ordenes = [int(modelo.getVal(z[o]) + 0.5) for o in range(O)]
         unidades = sum(units_o[o] for o in range(O) if ordenes[o])
 
-        columna = {'pasillo': pasillo_seleccionado, 'ordenes': ordenes, 'unidades': unidades}
+        # Gap con dual real
+        valor_primal = sum(units_o[o] for o in range(O) if ordenes[o])
+        valor_dual = sum(dual_vals.get(f"orden_{o}", 0) * ordenes[o] for o in range(O)) \
+                    + dual_vals.get("card_k", 0) + dual_vals.get("restr_total_ub", 0) * unidades \
+                    + dual_vals.get(f"pasillo_{pasillo_seleccionado}", 0)
+        print(f"   Primal subproblema = {valor_primal:.6f}, Dual estimado = {valor_dual:.6f}, Gap = {valor_primal - valor_dual:.6e}")
 
-        return columna
+        return {'pasillo': pasillo_seleccionado, 'ordenes': ordenes, 'unidades': unidades}
+
 
     def Opt_cantidadPasillosFija(self, k, umbral):
         tiempo_ini = time.time()
@@ -240,62 +257,77 @@ class Columns:
 
             print(f"⌛ Iteración con {len(self.columnas.get(k, []))} columnas")
 
-            maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = self.construir_modelo_maestro(k, umbral)
+            # Construir maestro y relajarlo
+            maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = self.construir_modelo_maestro(k, tiempo_restante_total)
             if maestro is None:
                 print("No se pudo construir el modelo maestro a tiempo")
                 return None
 
-
-            # Relajamos variables
             maestro_relajado = Model(sourceModel=maestro)
             maestro_relajado.setPresolve(SCIP_PARAMSETTING.OFF)
             maestro_relajado.disablePropagation()
             for var in maestro_relajado.getVars():
                 maestro_relajado.chgVarType(var, "CONTINUOUS")
-                
             maestro_relajado.optimize()
-            if maestro_relajado.getStatus() == "optimal":
-                dual_map = {}
-                dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
-            else:
+
+            if maestro_relajado.getStatus() != "optimal":
                 print("⚠️ No se encontró solución. Estado del modelo:", maestro_relajado.getStatus())
                 break
+
+            # Obtener duales reales del maestro relajado
+            dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
 
             if primera_iteracion:
                 self.cant_var_inicio = maestro_relajado.getNVars()
                 primera_iteracion = False
 
-            # Verificás condición [b] con todas las columnas actuales del modelo maestro
-            violaciones = 0
+            # --- CHEQUEO PRIMAL-DUAL REAL ---
+            x_vals = [maestro_relajado.getVal(var) for var in maestro_relajado.getVars()]
+            valor_objetivo_primal = maestro_relajado.getObjVal()
+
+            rc_columnas = []
             for j, col in enumerate(self.columnas.get(k, [])):
                 c_j = sum(self.W[o][i] for i in range(self.I) for o in range(self.O) if col['ordenes'][o])
-                Ajy = 0
-                Ajy += dual_map.get("card_k", 0)
-                Ajy += sum(col['ordenes'][o] * dual_map.get(f"orden_{o}", 0) for o in range(self.O))
-                Ajy += col['unidades'] * dual_map.get("restr_total_ub", 0)
-                Ajy += dual_map.get(f"pasillo_{col['pasillo']}", 0)
+                dual_contrib = dual_map.get("card_k", 0)
+                dual_contrib += sum(col['ordenes'][o] * dual_map.get(f"orden_{o}", 0) for o in range(self.O))
+                dual_contrib += col['unidades'] * dual_map.get("restr_total_ub", 0)
+                dual_contrib += dual_map.get(f"pasillo_{col['pasillo']}", 0)
+                rc = c_j - dual_contrib
+                rc_columnas.append(rc)
+                if rc > 1e-6:
+                    print(f"⚠️ Violación condición [b] en columna {j}: rc = {rc}")
 
-                if Ajy < c_j:
-                    print(f"⚠️ Violación condición [b] en columna {j}: {Ajy} < {c_j}")
-                    violaciones += 1
+            valor_objetivo_dual = valor_objetivo_primal - sum(x_vals[j] * rc_columnas[j] for j in range(len(rc_columnas)))
+            gap_real = valor_objetivo_primal - valor_objetivo_dual
 
-            valor_objetivo = maestro_relajado.getObjVal()
-            print("Valor objetivo:", valor_objetivo)
+            print("🔎 Chequeo primal-dual REAL:")
+            print(f"   Primal = {valor_objetivo_primal:.6f}")
+            print(f"   Dual   = {valor_objetivo_dual:.6f}")
+            print(f"   Gap    = {gap_real:.6e}")
 
-            mejor_sol = construir_mejor_solucion(maestro_relajado, self.columnas.get(k, []), valor_objetivo, self.cant_var_inicio)
+            # Construir mejor solución según x* del maestro
+            mejor_sol = construir_mejor_solucion(maestro_relajado, self.columnas.get(k, []), valor_objetivo_primal, self.cant_var_inicio)
+            
 
+
+            # Resolver subproblema con duales
+            tiempo_restante_total = umbral - (time.time() - tiempo_ini)
             nueva_col = self.resolver_subproblema(self.W, self.S, dual_map, self.UB, k, tiempo_restante_total)
 
-            if nueva_col is None:
-                print("No se generó columna mejoradora → Fin del bucle.")
+            # Evitar columnas nulas o duplicadas
+            if nueva_col is None or any(
+                col['pasillo'] == nueva_col['pasillo'] and col['ordenes'] == nueva_col['ordenes']
+                for col in self.columnas.get(k, [])
+            ):
+                print("No se generó columna nueva o ya existe → Fin del bucle.")
                 break
 
             print("Nueva columna encontrada:", nueva_col)
-
-            # Agregar la nueva columna
             self.columnas.setdefault(k, []).append(nueva_col)
 
         return mejor_sol
+
+
 
 
     def Opt_PasillosFijos(self, umbral):
