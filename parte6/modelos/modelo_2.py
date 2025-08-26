@@ -2,54 +2,74 @@ import numpy as np
 from sklearn.cluster import KMeans
 import sys
 import os
+
 try:
     from parte5.columns_solver import Columns as ColumnsBase
 except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     from parte5.columns_solver import Columns as ColumnsBase
 
+
 class Columns(ColumnsBase):
 
     def __init__(self, W, S, LB, UB):
         super().__init__(W, S, LB, UB)
-    
-    def Rankear(self, umbral):
-        capacidades = np.array([sum(self.S[a]) for a in range(self.A)]).reshape(-1, 1)
+
+    def Rankear(self, umbral, alpha=1.0, verbose=True):
+        """
+        Rankea valores de k en función de la capacidad acumulada.
+
+        Parámetros
+        ----------
+        umbral : float
+            Tiempo total disponible a repartir.
+        alpha : float, default=1.0
+            Factor de decaimiento de los pesos (1/(i+1)^alpha).
+        verbose : bool, default=True
+            Si True, imprime la asignación de tiempos.
+
+        Retorna
+        -------
+        lista_k : list[int]
+            Valores de k ordenados por prioridad.
+        lista_umbrales : list[float]
+            Tiempo asignado a cada k.
+        """
+        # --- Paso 1: calcular capacidades ---
+        capacidades = np.sum(self.S, axis=1)
         n_clusters = min(4, self.A)
 
-        if self.A > 1:
-            kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(capacidades)
-            labels = kmeans.labels_
-            pasillos_por_grupo = []
-            for g in range(n_clusters):
-                indices = [i for i, lbl in enumerate(labels) if lbl == g]
-                if indices:
-                    mejor = max(indices, key=lambda a: capacidades[a][0])
-                    pasillos_por_grupo.append(mejor)
+        # --- Paso 2: elegir pasillos representativos (clustering o sort simple) ---
+        if self.A > 1 and np.ptp(capacidades) > 1e-9:
+            kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=0)
+            labels = kmeans.fit_predict(capacidades.reshape(-1, 1))
 
-            pasillos_ordenados = sorted(pasillos_por_grupo, key=lambda a: capacidades[a][0], reverse=True)
+            # elegir pasillo de mayor capacidad en cada cluster
+            pasillos_por_grupo = [
+                np.argmax(np.where(labels == g, capacidades, -np.inf))
+                for g in range(n_clusters) if np.any(labels == g)
+            ]
+            pasillos_ordenados = sorted(pasillos_por_grupo, key=lambda a: capacidades[a], reverse=True)
         else:
-            pasillos_ordenados = [0]
+            pasillos_ordenados = np.argsort(capacidades)[::-1].tolist()
 
-        # Calcular capacidad acumulada por cada k (1 a A)
-        lista_k_cap = []
-        for k in range(1, self.A + 1):
-            suma_capacidad_k = sum(capacidades[a][0] for a in pasillos_ordenados[:min(k, len(pasillos_ordenados))])
-            lista_k_cap.append((k, suma_capacidad_k))
+        # --- Paso 3: capacidad acumulada para cada k ---
+        capacidades_ordenadas = capacidades[pasillos_ordenados]
+        cap_acumuladas = np.cumsum(capacidades_ordenadas)
 
-        # Ordenar por capacidad acumulada (mayor prioridad primero)
-        lista_k_cap.sort(key=lambda x: x[1], reverse=True)
+        # ranking de k por capacidad acumulada
+        lista_k_cap = sorted(enumerate(cap_acumuladas, start=1), key=lambda x: x[1], reverse=True)
         lista_k = [k for k, _ in lista_k_cap]
 
-        # Asignar pesos decrecientes del tipo 1, 1/2, 1/3, ..., normalizados
-        pesos = [1 / (i + 1) for i in range(len(lista_k))]
-        total_pesos = sum(pesos)
-        lista_umbrales = [(p / total_pesos) * umbral for p in pesos]
+        # --- Paso 4: asignación de umbrales con pesos normalizados ---
+        pesos = 1.0 / (np.arange(1, len(lista_k) + 1) ** alpha)
+        pesos /= pesos.sum()
+        lista_umbrales = (pesos * umbral).tolist()
 
-        # Mostrar asignación
-        print("\n🕒 Asignación de tiempos por k (priorizando primeros):")
-        for k, tiempo in zip(lista_k, lista_umbrales):
-            print(f"  k = {k:<3} → tiempo asignado: {tiempo:.2f} s")
+        # --- Paso 5: logging ---
+        if verbose:
+            print("\n🕒 Asignación de tiempos por k (priorizando primeros):")
+            for k, tiempo in zip(lista_k, lista_umbrales):
+                print(f"  k = {k:<3} → {tiempo:.2f} s (peso {tiempo/umbral:.2%})")
 
         return lista_k, lista_umbrales
-
