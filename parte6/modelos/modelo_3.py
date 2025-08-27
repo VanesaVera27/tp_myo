@@ -1,8 +1,8 @@
 import sys
 import os
 import time
-from collections import deque
-from pyscipopt import Model, SCIP_PARAMSETTING
+from collections import deque, defaultdict
+from pyscipopt import Model, quicksum, SCIP_PARAMSETTING
 
 from parte5.columns_solver import construir_mejor_solucion
 
@@ -14,154 +14,108 @@ except ImportError:
 
 
 class Columns(ColumnsBase):
-    def __init__(self, W, S, LB, UB):
+    def __init__(self, W, S, LB, UB, verbose=True):
         super().__init__(W, S, LB, UB)
-        self.inactive_counter = {}   # {(k, id_col): deque([0,1,...])}
-        self.iteracion_actual = {}   # {k: int}
-        self.col_hashes = {}         # {k: set()}
+        self.inactive_counter = defaultdict(lambda: deque(maxlen=5))
+        self.iteracion_actual = defaultdict(int)
+        self.col_hashes = defaultdict(set)
+
 
     def tiempo_restante(self, tiempo_ini, umbral):
         return umbral - (time.time() - tiempo_ini)
 
-    def actualizar_historial_inactividad(self, modelo_relajado, k, tiempo_ini, umbral, umbral_iteraciones=5):
-        if self.tiempo_restante(tiempo_ini, umbral) <= 0:
-            return False  
 
+    def actualizar_historial_inactividad(self, modelo_relajado, k, umbral_iteraciones=5):
+        """Registra si las columnas estuvieron inactivas en la última iteración."""
         for idx, x in enumerate(modelo_relajado.getVars()):
             col = self.columnas[k][idx]
             key = (k, id(col))
             val = x.getLPSol() or 0
-
-            if key not in self.inactive_counter:
-                self.inactive_counter[key] = deque(maxlen=umbral_iteraciones)
-
             self.inactive_counter[key].append(1 if val < 1e-5 else 0)
-        
-        return True
 
-    def eliminar_columnas_inactivas_ultimas_iteraciones(self, k, umbral_iteraciones=5):
-        nuevas_columnas = []
-        eliminadas = 0
-
+    def eliminar_columnas_inactivas(self, k, umbral_iteraciones=5):
+        """Elimina columnas que estuvieron inactivas todas las últimas iteraciones."""
+        nuevas_columnas, eliminadas = [], 0
         for col in self.columnas[k]:
             key = (k, id(col))
             historial = self.inactive_counter.get(key, [])
             if len(historial) == umbral_iteraciones and all(historial):
                 eliminadas += 1
-                continue
-            nuevas_columnas.append(col)
+            else:
+                nuevas_columnas.append(col)
 
         self.columnas[k] = nuevas_columnas
-        if eliminadas:
-            print(f"🗑️ Eliminadas {eliminadas} columnas inactivas (k={k})")
+
+
+    def _resolver_maestro_relajado(self, maestro):
+        """Devuelve el maestro relajado y sus duales, o None si no es óptimo."""
+        maestro_relajado = Model(sourceModel=maestro)
+        maestro_relajado.setPresolve(SCIP_PARAMSETTING.OFF)
+        maestro_relajado.setHeuristics(SCIP_PARAMSETTING.OFF)
+        maestro_relajado.disablePropagation()
+        for var in maestro_relajado.getVars():
+            maestro_relajado.chgVarType(var, "CONTINUOUS")
+
+        maestro_relajado.optimize()
+        if maestro_relajado.getStatus() != "optimal":
+            return None, None
+
+        dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
+        return maestro_relajado, dual_map
 
     def Opt_cantidadPasillosFija(self, k, umbral):
         tiempo_ini = time.time()
-        tiempo_inicializacion = 0.3 * umbral
-        self.inicializar_columnas_para_k(k, umbral=tiempo_inicializacion)
+        self.inicializar_columnas_para_k(k, umbral=0.3 * umbral)
 
-        self.col_hashes.setdefault(k, set())
-
-        mejor_sol = None
-        primera_iteracion = True
+        mejor_sol, primera_iteracion = None, True
+        
+        # Parámetro para el umbral del costo reducido (ajustable)
+        REDUCED_COST_TOL = 1e-6
 
         while True:
-            if self.tiempo_restante(tiempo_ini, umbral) <= 0:
-                print("⏳ Tiempo agotado en Opt_cantidadPasillosFija → Fin del bucle.")
+            # Chequeo de tiempo
+            tiempo_restante = self.tiempo_restante(tiempo_ini, umbral)
+            if tiempo_restante <= 0:
                 break
 
-            print(f"⌛ Iteración con {len(self.columnas.get(k, []))} columnas")
-
-            # --- Construir maestro ---
-            maestro, _, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = \
-                self.construir_modelo_maestro(k, self.tiempo_restante(tiempo_ini, umbral))
+            # Construir maestro
+            maestro, _, _, _, _, _ = self.construir_modelo_maestro(k, tiempo_restante)
             if maestro is None:
-                print("No se pudo construir el modelo maestro a tiempo")
                 return None
 
-            # --- Relajar maestro ---
-            maestro_relajado = Model(sourceModel=maestro)
-            maestro_relajado.setPresolve(SCIP_PARAMSETTING.OFF)
-            maestro_relajado.setHeuristics(SCIP_PARAMSETTING.OFF)
-            maestro_relajado.disablePropagation()
-            for var in maestro_relajado.getVars():
-                maestro_relajado.chgVarType(var, "CONTINUOUS")
-            maestro_relajado.optimize()
-
-            if maestro_relajado.getStatus() != "optimal":
-                print("⚠️ No se encontró solución. Estado:", maestro_relajado.getStatus())
+            # Resolver maestro relajado
+            maestro_relajado, dual_map = self._resolver_maestro_relajado(maestro)
+            if maestro_relajado is None:
                 break
-
-            # --- Duales del maestro ---
-            dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
 
             if primera_iteracion:
                 self.cant_var_inicio = maestro_relajado.getNVars()
                 primera_iteracion = False
 
-            # --- Calcular reduced costs ---
-            rc_columnas = []
-            for j, col in enumerate(self.columnas.get(k, [])):
-                # Precomputar costo si no existe
-                if "costo" not in col:
-                    col["costo"] = sum(
-                        self.W[o][i]
-                        for i in range(self.I)
-                        for o in range(self.O)
-                        if col["ordenes"][o]
-                    )
-                c_j = col["costo"]
-
-                dual_contrib = dual_map.get("card_k", 0)
-                dual_contrib += sum(col["ordenes"][o] * dual_map.get(f"orden_{o}", 0) for o in range(self.O))
-                dual_contrib += col["unidades"] * dual_map.get("restr_total_ub", 0)
-                dual_contrib += dual_map.get(f"pasillo_{col['pasillo']}", 0)
-
-                rc = c_j - dual_contrib
-                rc_columnas.append(rc)
-
-            # --- Parada por optimalidad ---
-            if all(rc >= -1e-6 for rc in rc_columnas):
-                print("✅ No hay columnas mejoradoras → óptimo alcanzado.")
-                break
-
-            # --- Construir mejor solución ---
+            # Construir mejor solución entera
             mejor_sol = construir_mejor_solucion(
                 maestro_relajado, self.columnas.get(k, []),
                 maestro_relajado.getObjVal(), self.cant_var_inicio
             )
 
-            # --- Actualizar iteración e historial ---
-            self.iteracion_actual[k] = self.iteracion_actual.get(k, 0) + 1
-            self.actualizar_historial_inactividad(maestro_relajado, k, tiempo_ini, umbral)
+            # Actualizar historial
+            self.iteracion_actual[k] += 1
+            self.actualizar_historial_inactividad(maestro_relajado, k)
 
-            # --- Generar nueva columna ---
-            nueva_col = self.resolver_subproblema(self.W, self.S, dual_map, self.UB, k, self.tiempo_restante(tiempo_ini, umbral))
-            if nueva_col is None:
-                print("No se generó columna nueva → Fin del bucle.")
-                break
-
-            # Precomputar costo
-            nueva_col["costo"] = sum(
-                self.W[o][i]
-                for i in range(self.I)
-                for o in range(self.O)
-                if nueva_col["ordenes"][o]
+            # Generar nueva columna
+            nueva_col = self.resolver_subproblema(
+                self.W, self.S, dual_map, self.UB, k, tiempo_restante
             )
 
-            # Hash para duplicados
-            col_hash = (nueva_col["pasillo"], tuple(nueva_col["ordenes"]))
-            if col_hash in self.col_hashes[k]:
-                print("Columna duplicada → Fin del bucle.")
+            # Condición de parada mejorada
+            if nueva_col is None :
                 break
-
-            # Agregar columna válida
-            print("➕ Nueva columna encontrada")
+            
+            # Agregar columna
             self.columnas.setdefault(k, []).append(nueva_col)
-            self.col_hashes[k].add(col_hash)
 
-        # --- Limpieza de columnas inactivas ---
-        if self.iteracion_actual.get(k, 0) >= 5:
-            self.eliminar_columnas_inactivas_ultimas_iteraciones(k, umbral_iteraciones=5)
+        # Limpieza final
+        if self.iteracion_actual[k] >= 5:
+            self.eliminar_columnas_inactivas(k)
 
         return mejor_sol

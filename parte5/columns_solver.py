@@ -1,4 +1,5 @@
 import time
+import random
 from pyscipopt import Model, quicksum, SCIP_PARAMSETTING
 
 def tiempo_excedido(tiempo_ini, umbral):
@@ -29,7 +30,6 @@ def construir_mejor_solucion(modelo_relajado, columnas_k, valor_obj_primal, cant
         "gap_real": gap_real
     }
 
-    print(f"🔹 Mejor solución construida: Primal={valor_obj_primal:.6f}, Dual={cota_dual_real:.6f}, Gap={gap_real:.6e}")
 
     return mejor_sol
 
@@ -66,6 +66,10 @@ class Columns:
         self.cant_var_inicio = 0
 
     def inicializar_columnas_para_k(self, k, umbral=None):
+        """
+        Inicializa columnas para cada pasillo de forma más robusta,
+        encontrando un conjunto de órdenes factible y maximal heurísticamente.
+        """
         tiempo_ini = time.time()
 
         if not hasattr(self, 'columnas'):
@@ -74,34 +78,44 @@ class Columns:
         self.columnas[k] = []
         unidades_o = [sum(self.W[o]) for o in range(self.O)]
 
-        for a in range(self.A): 
+        # Se ordenan las órdenes de forma aleatoria para generar una variedad de combinaciones iniciales.
+        ordenes_indexadas = list(range(self.O))
+        random.shuffle(ordenes_indexadas)
+
+        for a in range(self.A):
             if umbral and (time.time() - tiempo_ini) > umbral:
                 print("⏱️ Tiempo agotado durante inicialización de columnas")
                 break
+            
+            # Intentar varias veces para cada pasillo para encontrar una solución inicial
+            for _ in range(5):  # Número de intentos (se puede ajustar)
+                cap_restante = list(self.S[a])
+                sel = [0] * self.O
+                total_unidades = 0
 
-            cap_restante = list(self.S[a])
-            sel = [0] * self.O
-            total_unidades = 0
+                # Probar diferentes combinaciones de órdenes
+                for o in ordenes_indexadas:
+                    if (unidades_o[o] + total_unidades <= self.UB) and \
+                    all(self.W[o][i] <= cap_restante[i] for i in range(self.I)):
+                        
+                        sel[o] = 1
+                        total_unidades += unidades_o[o]
+                        for i in range(self.I):
+                            cap_restante[i] -= self.W[o][i]
+                
+                # Solo si se seleccionó al menos una orden
+                if total_unidades > 0:
+                    nueva_columna = {
+                        'pasillo': a,
+                        'ordenes': sel,
+                        'unidades': total_unidades
+                    }
+                    self.columnas[k].append(nueva_columna)
+                    break  # Se encontró una columna para este pasillo, se pasa al siguiente
 
-            # Buscar solo UNA orden que entre
-            for o in range(self.O):
-                if all(self.W[o][i] <= cap_restante[i] for i in range(self.I)) and \
-                (unidades_o[o] <= self.UB):
-                    sel[o] = 1
-                    total_unidades = unidades_o[o]
-                    for i in range(self.I):
-                        cap_restante[i] -= self.W[o][i]
-                    break  # Solo una orden
+        print(f"✅ {len(self.columnas[k])} columnas iniciales creadas para k = {k}")
 
-            # Solo agregar columna si el pasillo realmente cubrió una orden
-            if total_unidades > 0:
-                self.columnas[k].append({
-                    'pasillo': a,
-                    'ordenes': sel,
-                    'unidades': total_unidades
-                })
 
-        print(f"✅ {len(self.columnas[k])} columnas iniciales creadas (una por pasillo, con una orden) para k = {k}")
 
     def construir_modelo_maestro(self, k, umbral):
         tiempo_ini = time.time()
@@ -221,7 +235,6 @@ class Columns:
             return None
 
         reduced_cost = modelo.getObjVal()
-        print(f"🔹 Costo reducido subproblema: {reduced_cost:.6f}")
 
         if reduced_cost <= 1e-6:
             return None
@@ -276,45 +289,20 @@ class Columns:
                 self.cant_var_inicio = maestro_relajado.getNVars()
                 primera_iteracion = False
 
-            # --- CHEQUEO PRIMAL-DUAL REAL ---
-            x_vals = [maestro_relajado.getVal(var) for var in maestro_relajado.getVars()]
+
             valor_objetivo_primal = maestro_relajado.getObjVal()
-
-            rc_columnas = []
-            for j, col in enumerate(self.columnas.get(k, [])):
-                c_j = sum(self.W[o][i] for i in range(self.I) for o in range(self.O) if col['ordenes'][o])
-                dual_contrib = dual_map.get("card_k", 0)
-                dual_contrib += sum(col['ordenes'][o] * dual_map.get(f"orden_{o}", 0) for o in range(self.O))
-                dual_contrib += col['unidades'] * dual_map.get("restr_total_ub", 0)
-                dual_contrib += dual_map.get(f"pasillo_{col['pasillo']}", 0)
-                rc = c_j - dual_contrib
-                rc_columnas.append(rc)
-                if dual_contrib < c_j:
-                    print(f"🚀🚀🚀 Violación condición [b] en columna {j}: rc = {rc}")
-
-            valor_objetivo_dual = valor_objetivo_primal - sum(x_vals[j] * rc_columnas[j] for j in range(len(rc_columnas)))
-            gap_real = valor_objetivo_primal - valor_objetivo_dual
-
-            # print("🔎 Chequeo primal-dual REAL:")
-            # print(f"   Primal = {valor_objetivo_primal:.6f}")
-            # print(f"   Dual   = {valor_objetivo_dual:.6f}")
-            # print(f"   Gap    = {gap_real:.6e}")
 
             # Construir mejor solución según x* del maestro
             mejor_sol = construir_mejor_solucion(maestro_relajado, self.columnas.get(k, []), valor_objetivo_primal, self.cant_var_inicio)
             
-
 
             # Resolver subproblema con duales
             tiempo_restante_total = umbral - (time.time() - tiempo_ini)
             nueva_col = self.resolver_subproblema(self.W, self.S, dual_map, self.UB, k, tiempo_restante_total)
 
             # Evitar columnas nulas o duplicadas
-            if nueva_col is None or any(
-                col['pasillo'] == nueva_col['pasillo'] and col['ordenes'] == nueva_col['ordenes']
-                for col in self.columnas.get(k, [])
-            ):
-                print("No se generó columna nueva o ya existe → Fin del bucle.")
+            if nueva_col is None :
+                print("No se generó columna nueva → Fin del bucle.")
                 break
 
             print("Nueva columna encontrada:", nueva_col)
@@ -406,7 +394,6 @@ class Columns:
             tiempo_restante_total = umbral - 4 - tiempo_transcurrido
 
             if tiempo_restante_total <= 0:
-                print("⏳ Sin tiempo restante para seguir evaluando k.")
                 break
 
             tiempo_k_deseado = tiempo_k
@@ -415,11 +402,6 @@ class Columns:
             print(f"Evaluando k={k} con tiempo asignado {tiempo_k:.2f} segundos")
 
             sol = self.Opt_cantidadPasillosFija(k, tiempo_k)
-
-            if sol is not None:
-                print("✅ Se encontró solución")
-            else:
-                print("❌ No se encontró una solución dentro del tiempo límite.")
 
             if sol:
                 sol_obj = sol.get("valor_objetivo", -float('inf'))
@@ -430,8 +412,6 @@ class Columns:
         if best_sol:
             tiempo_usado = time.time() - tiempo_ini
             tiempo_final = max(1.0, umbral - tiempo_usado)
-            print("✅ Resultado final relajado:", best_sol)
-            print(f"⏳ Tiempo restante para Opt_PasillosFijos: {tiempo_final:.2f}s")
 
             self.pasillos_fijos = best_sol["pasillos_seleccionados"]
             resultado_final = self.Opt_PasillosFijos(tiempo_final)

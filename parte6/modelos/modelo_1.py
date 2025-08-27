@@ -20,7 +20,6 @@ class Columns(ColumnsBase):
 
         for a in range(self.A):
             if umbral and (time.time() - tiempo_ini) > umbral:
-                print("⏱️ Tiempo agotado durante inicialización de columnas")
                 break
 
             cap_restante = list(self.S[a])
@@ -45,4 +44,3 @@ class Columns(ColumnsBase):
                 })
                 columnas_creadas += 1
 
-        print(f"✅ {columnas_creadas} columnas iniciales maximales creadas para k = {k}")
