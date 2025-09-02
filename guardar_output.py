@@ -48,3 +48,4 @@ def guardar_resultado(archivo_input, parte, resultado):
         f.write(" ".join(map(str, resultado["ordenes_seleccionadas"])) + "\n")
         f.write("Pasillos seleccionados:\n")
         f.write(" ".join(map(str, resultado["pasillos_seleccionados"])) + "\n")
+        
