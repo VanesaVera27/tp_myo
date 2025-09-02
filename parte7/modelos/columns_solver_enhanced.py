@@ -39,7 +39,7 @@ def construir_mejor_solucion(maestro_relajado, columnas_k, cant_var_inicio, k):
                 if sel:
                     ordenes_seleccionadas.add(o)
             # sumar unidades de esta columna al valor objetivo real
-            valor_obj_real += columnas_k[idx]['unidades']
+    valor_obj_real = maestro_relajado.getObjVal()
 
     cota_dual_real = maestro_relajado.getDualbound()
     gap_real = valor_obj_real - cota_dual_real
@@ -64,29 +64,6 @@ def construir_mejor_solucion(maestro_relajado, columnas_k, cant_var_inicio, k):
     return mejor_sol
 
 
-def costo_reducido(col, dual_map, W, I, O):
-    """
-    Calcula el costo reducido de una columna 'col'
-    respecto a los duales actuales del maestro relajado.
-    Ahora 'col' puede contener varios pasillos en col['pasillos'].
-    """
-    # costo de la columna en la FO del maestro (suma de unidades asignadas por órdenes)
-    c_j = sum(W[o][i] for o in range(O) if col['ordenes'][o] for i in range(I))
-
-    # contribución dual
-    Ajy = 0
-    # ahora la contribución del dual de card_k depende de cuántos pasillos contiene la columna
-    Ajy += dual_map.get("card_k", 0) * len(col.get('pasillos', []))
-    Ajy += sum(col['ordenes'][o] * dual_map.get(f"orden_{o}", 0) for o in range(O))
-    Ajy += col['unidades'] * dual_map.get("restr_total_ub", 0)
-    # sumar duales de todos los pasillos contenidos en la columna
-    Ajy += sum(dual_map.get(f"pasillo_{a}", 0) for a in col.get('pasillos', []))
-
-    return c_j - Ajy
-
-
-
-
 class Columns(ColumnsBase):
     def __init__(self, W, S, LB, UB):
         super().__init__(W, S, LB, UB)  # Llama al init de ColumnsBase
@@ -98,68 +75,66 @@ class Columns(ColumnsBase):
         self.iteracion_actual = {}
 
     def inicializar_columnas_iniciales(self, umbral=None):
-        """Genera columnas iniciales solo una vez para todos los k posibles."""
-        tiempo_ini = time.time()
-        self.columnas_iniciales = []
-        unidades_o = [sum(self.W[o]) for o in range(self.O)]
-        ordenes_indexadas = sorted(range(self.O), key=lambda o: unidades_o[o], reverse=True)
+            """Genera columnas iniciales solo una vez para todos los k posibles."""
+            tiempo_ini = time.time()
+            self.columnas_iniciales = []
 
-        for a in range(self.A):
-            if umbral and (time.time() - tiempo_ini) > umbral:
-                break
+            W_np = np.array(self.W)  # O x I
+            S_np = np.array(self.S)  # A x I
+            unidades_o = W_np.sum(axis=1)  # total por orden
+            ordenes_indexadas = np.argsort(-unidades_o)  # de mayor a menor
+            
 
-            columna_generada = False
-
-            # --- mono-pasillo ---
-            for _ in range(5):
-                cap_restante = list(self.S[a])
-                sel = [0] * self.O
-                total_unidades = 0
-
-                for o in ordenes_indexadas:
-                    if unidades_o[o] + total_unidades <= self.UB and all(self.W[o][i] <= cap_restante[i] for i in range(self.I)):
-                        sel[o] = 1
-                        total_unidades += unidades_o[o]
-                        for i in range(self.I):
-                            cap_restante[i] -= self.W[o][i]
-
-                if total_unidades > 0:
-                    self.columnas_iniciales.append({'pasillos':[a], 'ordenes':sel, 'unidades':total_unidades})
-                    columna_generada = True
+            for a in range(self.A):
+                if umbral and (time.time() - tiempo_ini) > umbral:
                     break
 
-            # --- dos pasillos ---
-            if not columna_generada:
-                for b in range(a + 1, self.A):
-                    if umbral and (time.time() - tiempo_ini) > umbral:
-                        break
-                    for _ in range(3):
-                        cap_restante = [self.S[a][i] + self.S[b][i] for i in range(self.I)]
-                        sel = [0] * self.O
+                columna_generada = False
+
+                # --- mono-pasillo ---
+                cap_restante = S_np[a].copy()
+                sel = np.zeros(self.O, dtype=int)
+                total_unidades = 0
+
+                for o in range(self.O):
+                    if np.all(W_np[o] <= cap_restante) and (total_unidades + unidades_o[o] <= self.UB):
+                        sel[o] = 1
+                        total_unidades += unidades_o[o]
+                        cap_restante -= W_np[o]
+
+                if total_unidades > 0:
+                    self.columnas_iniciales.append({'pasillos':[a], 'ordenes':sel.tolist(), 'unidades':total_unidades})
+                    columna_generada = True
+
+                # --- dos pasillos ---
+            if len(self.columnas_iniciales) == 0:
+                for a in range(self.A):
+                    for b in range(a + 1, self.A):
+                        if umbral and (time.time() - tiempo_ini) > umbral:
+                            break
+
+                        cap_restante = S_np[a] + S_np[b]
+                        sel = np.zeros(self.O, dtype=int)
                         total_unidades = 0
 
                         for o in ordenes_indexadas:
-                            if unidades_o[o] + total_unidades <= self.UB and all(self.W[o][i] <= cap_restante[i] for i in range(self.I)):
+                            if unidades_o[o] + total_unidades <= self.UB and np.all(W_np[o] <= cap_restante):
                                 sel[o] = 1
                                 total_unidades += unidades_o[o]
-                                for i in range(self.I):
-                                    cap_restante[i] -= self.W[o][i]
+                                cap_restante -= W_np[o]
 
                         if total_unidades > 0:
-                            self.columnas_iniciales.append({'pasillos':[a,b], 'ordenes':sel, 'unidades':total_unidades})
-                            columna_generada = True
-                            break
-                    if columna_generada:
-                        break
+                            self.columnas_iniciales.append({'pasillos':[a,b], 'ordenes':sel.tolist(), 'unidades':total_unidades})
+                            break  # no necesitamos más combinaciones
 
-        print(f"✅ {len(self.columnas_iniciales)} columnas iniciales generadas para todos los k posibles")
-
-
+            print(f"✅ {len(self.columnas_iniciales)} columnas iniciales generadas para todos los k posibles")
+    
     def construir_modelo_maestro(self, k, umbral):
         tiempo_ini = time.time()
 
         modelo = Model(f"RMP_k_{k}")
         modelo.setParam('display/verblevel', 0)
+        modelo.setParam('limits/time', umbral)
         x_vars = []
 
         # variable x_j binaria para cada columna j
@@ -254,6 +229,7 @@ class Columns(ColumnsBase):
 
         modelo = Model("Subproblema_unico")
         modelo.setParam("display/verblevel", 0)
+        modelo.setParam('limits/time', umbral)
 
         # ahora y[a] indica si el pasillo 'a' forma parte de la nueva columna
         y = {a: modelo.addVar(vtype="B", name=f"y_{a}") for a in range(A)}
@@ -310,7 +286,7 @@ class Columns(ColumnsBase):
     def Opt_cantidadPasillosFija(self, k, umbral):
         tiempo_ini = time.time()
         tiempo_inicializacion = 0.3 * umbral
-        self.columnas[k] = list(self.columnas_iniciales)
+        self.columnas[k] = self.columnas_iniciales.copy()
 
         mejor_sol_global = None
         mejor_prod_global = -1
@@ -335,6 +311,7 @@ class Columns(ColumnsBase):
 
             maestro_relajado = Model(sourceModel=maestro)
             maestro_relajado.setPresolve(SCIP_PARAMSETTING.OFF)
+            maestro_relajado.setParam('limits/time', tiempo_restante_total)
             maestro_relajado.disablePropagation()
             for var in maestro_relajado.getVars():
                 maestro_relajado.chgVarType(var, "CONTINUOUS")
@@ -379,7 +356,7 @@ class Columns(ColumnsBase):
         tiempo_ini = time.time()
         k = len(self.pasillos_fijos)
         solucion_vacia = {
-            "valor_objetivo_total": 0,
+            "valor_objetivo": 0,
             "productividad_por_pasillo": 0,
             "pasillos_seleccionados": set(),
             "ordenes_seleccionadas": set(),
@@ -456,19 +433,25 @@ class Columns(ColumnsBase):
         best_sol = None
         tiempo_ini = time.time()
 
-        lista_k, lista_umbrales = self.Rankear(umbral)
-        self.inicializar_columnas_iniciales(umbral=tiempo_ini)
+        # Distribución dinámica de tiempo
+        ratio_inicial = 0.25
+        tiempo_inicializacion = umbral * ratio_inicial
+        tiempo_final_fijo = 60
 
-        for k, tiempo_k in zip(lista_k, lista_umbrales):
+        lista_k, lista_umbrales = self.Rankear(umbral)
+        self.inicializar_columnas_iniciales(tiempo_inicializacion)
+
+        for k, tiempo_k_estimado in zip(lista_k, lista_umbrales):
             tiempo_actual = time.time()
             tiempo_transcurrido = tiempo_actual - tiempo_ini
-            tiempo_restante_total = umbral - 4 - tiempo_transcurrido
+            tiempo_restante_total = umbral - tiempo_final_fijo - tiempo_transcurrido
 
             if tiempo_restante_total <= 0:
                 print("⏳ Sin tiempo restante para seguir evaluando k.")
                 break
 
-            tiempo_k = min(tiempo_k, tiempo_restante_total)
+            # Ajustar tiempo para este k según lo que queda disponible
+            tiempo_k = min(tiempo_k_estimado, tiempo_restante_total)
             print(f"Evaluando k={k} con tiempo asignado {tiempo_k:.2f} segundos")
 
             sol = self.Opt_cantidadPasillosFija(k, tiempo_k)
@@ -480,14 +463,12 @@ class Columns(ColumnsBase):
                     best_sol = sol
 
         if best_sol:
-            tiempo_usado = time.time() - tiempo_ini
-            tiempo_final = max(1.0, umbral - tiempo_usado)
             print("✅ Mejor solución global encontrada:", best_sol)
 
             self.pasillos_fijos = best_sol["pasillos_seleccionados"]
-            resultado_final = self.Opt_PasillosFijos(tiempo_final)
-            # Mantener valor objetivo real de la mejor solución
+            resultado_final = self.Opt_PasillosFijos(tiempo_final_fijo)
             resultado_final["tiempo_total"] = round(time.time() - tiempo_ini, 2)
+            resultado_final["variables"] = best_sol["variables"]
 
             print("✅ Resultado final con pasillos fijos:", resultado_final)
             return resultado_final
@@ -502,15 +483,31 @@ class Columns(ColumnsBase):
             "cota_dual": 0
         }
 
+    
     def Rankear(self, umbral):
-        # Calcular la capacidad total por pasillo
-        capacidades = [sum(self.S[a]) for a in range(self.A)]
-        # Ordenar los pasillos por capacidad de mayor a menor
-        pasillos_ordenados = sorted(range(1, self.A + 1), key=lambda a: capacidades[a-1], reverse=True)
-        lista_k = pasillos_ordenados
+        """
+        Devuelve una lista de valores de k (cantidad de pasillos a usar),
+        cubriendo casos chicos, medianos y grandes.
+        """
+        lista_k = []
 
-        # Tiempo asignado por k, equitativamente
-        tiempo_por_k = umbral 
+        # 1) valores chicos
+        max_chicos = min(self.A, 5)
+        lista_k.extend(range(1, max_chicos + 1))
+
+        # 2) valor mediano (si A es suficientemente grande)
+        if self.A > 6:
+            lista_k.append(self.A // 2)
+
+        # 3) valor grande
+        if self.A not in lista_k:
+            lista_k.append(self.A)
+
+        # Elimina duplicados y ordena
+        lista_k = sorted(set(lista_k))
+
+        # Distribución de tiempo: equitativa
+        tiempo_por_k = max(1.0, umbral / len(lista_k))
         lista_umbrales = [tiempo_por_k] * len(lista_k)
 
-        return lista_k, lista_umbrales
+        return lista_k,lista_umbrales
