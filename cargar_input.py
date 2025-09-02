@@ -24,3 +24,4 @@ def leer_input(nombre_archivo):
 
     LB, UB = map(int, lineas[-1].split())
     return W, S, LB, UB
+    
