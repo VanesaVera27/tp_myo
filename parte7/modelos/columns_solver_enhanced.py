@@ -11,7 +11,6 @@ try:
     from parte5.columns_solver import tiempo_excedido
 
 except ImportError:
-    # Añade '../parte5/' al sys.path si no se encuentra el módulo
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
     from parte5.columns_solver import Columns as ColumnsBase
 
@@ -21,30 +20,24 @@ def tiempo_excedido(tiempo_ini, umbral):
     return time.time() - tiempo_ini > umbral
 
 def construir_mejor_solucion(maestro_relajado, columnas_k, cant_var_inicio, k):
-    """
-    Construye la mejor solución a partir del maestro relajado.
-    Calcula el valor objetivo real usando solo las columnas activas (x>0).
-    """
     pasillos_seleccionados = set()
     ordenes_seleccionadas = set()
     valor_obj_real = 0
 
-    # Recorrer variables y construir la solución
+
     for idx, x in enumerate(maestro_relajado.getVars()):
         val = maestro_relajado.getVal(x)
-        if val > 1e-6:  # variable activada
-            # agregar pasillos y órdenes
+        if val > 1e-6:  
             pasillos_seleccionados.update(columnas_k[idx].get('pasillos', []))
             for o, sel in enumerate(columnas_k[idx]['ordenes']):
                 if sel:
                     ordenes_seleccionadas.add(o)
-            # sumar unidades de esta columna al valor objetivo real
     valor_obj_real = maestro_relajado.getObjVal()
 
     cota_dual_real = maestro_relajado.getDualbound()
     gap_real = valor_obj_real - cota_dual_real
 
-    # PRODUCTIVIDAD: usar k exacto
+  
     productividad = valor_obj_real / k if k > 0 else 0
 
     mejor_sol = {
@@ -66,23 +59,22 @@ def construir_mejor_solucion(maestro_relajado, columnas_k, cant_var_inicio, k):
 
 class Columns(ColumnsBase):
     def __init__(self, W, S, LB, UB):
-        super().__init__(W, S, LB, UB)  # Llama al init de ColumnsBase
-        self.modelos = {}  # Inicializo el dict para guardar modelos por k
+        super().__init__(W, S, LB, UB) 
+        self.modelos = {}  
         self.n_pasillos = self.A
-        self.columnas_iniciales = []   # columnas generadas una sola vez
+        self.columnas_iniciales = []   
         self.columnas = {}  
         self.inactive_counter = {}
         self.iteracion_actual = {}
 
     def inicializar_columnas_iniciales(self, umbral=None):
-            """Genera columnas iniciales solo una vez para todos los k posibles."""
             tiempo_ini = time.time()
             self.columnas_iniciales = []
 
-            W_np = np.array(self.W)  # O x I
-            S_np = np.array(self.S)  # A x I
-            unidades_o = W_np.sum(axis=1)  # total por orden
-            ordenes_indexadas = np.argsort(-unidades_o)  # de mayor a menor
+            W_np = np.array(self.W) 
+            S_np = np.array(self.S)  
+            unidades_o = W_np.sum(axis=1)  
+            ordenes_indexadas = np.argsort(-unidades_o) 
             
 
             for a in range(self.A):
@@ -91,7 +83,6 @@ class Columns(ColumnsBase):
 
                 columna_generada = False
 
-                # --- mono-pasillo ---
                 cap_restante = S_np[a].copy()
                 sel = np.zeros(self.O, dtype=int)
                 total_unidades = 0
@@ -106,7 +97,6 @@ class Columns(ColumnsBase):
                     self.columnas_iniciales.append({'pasillos':[a], 'ordenes':sel.tolist(), 'unidades':total_unidades})
                     columna_generada = True
 
-                # --- dos pasillos ---
             if len(self.columnas_iniciales) == 0:
                 for a in range(self.A):
                     for b in range(a + 1, self.A):
@@ -125,7 +115,7 @@ class Columns(ColumnsBase):
 
                         if total_unidades > 0:
                             self.columnas_iniciales.append({'pasillos':[a,b], 'ordenes':sel.tolist(), 'unidades':total_unidades})
-                            break  # no necesitamos más combinaciones
+                            break 
 
             print(f"✅ {len(self.columnas_iniciales)} columnas iniciales generadas para todos los k posibles")
     
@@ -137,7 +127,6 @@ class Columns(ColumnsBase):
         modelo.setParam('limits/time', umbral)
         x_vars = []
 
-        # variable x_j binaria para cada columna j
         for idx, col in enumerate(self.columnas[k]):
             if tiempo_excedido(tiempo_ini, umbral):
                 print("⏱️ Tiempo excedido durante la creación de variables.")
@@ -146,7 +135,6 @@ class Columns(ColumnsBase):
             x = modelo.addVar(vtype="B", name=f"x_{idx}")
             x_vars.append(x)
 
-        # La cardinalidad k ahora es la suma de pasillos cubiertos por las columnas seleccionadas
         restr_card_k = modelo.addCons(
             quicksum(x_vars[j] * len(self.columnas[k][j].get('pasillos', [])) for j in range(len(x_vars))) == k,
             name="card_k"
@@ -173,7 +161,6 @@ class Columns(ColumnsBase):
             name="restr_total_ub"
         )
 
-        # Restricción de pasillos: ahora cada pasillo a puede ser cubierto por a lo sumo 1 columna seleccionada
         restr_pasillos = {}
         for a in range(self.A):
             if tiempo_excedido(tiempo_ini, umbral):
@@ -208,14 +195,6 @@ class Columns(ColumnsBase):
     
 
     def resolver_subproblema(self, W, S, dual_vals, UB, k, umbral=None):
-        """
-        Subproblema que puede seleccionar varios pasillos (y[a] binaria por pasillo)
-        y selecciona órdenes z[o]. La columna generada tendrá:
-            pasillos = [a | y[a] == 1]
-            ordenes = z[o]
-            unidades = sum(units_o[o] * z[o])
-        FO: maximize (c_j - dual_contrib)  (equivalente a costo reducido)
-        """
         tiempo_ini = time.time()
         O = len(W)
         I = len(W[0])
@@ -231,14 +210,11 @@ class Columns(ColumnsBase):
         modelo.setParam("display/verblevel", 0)
         modelo.setParam('limits/time', umbral)
 
-        # ahora y[a] indica si el pasillo 'a' forma parte de la nueva columna
         y = {a: modelo.addVar(vtype="B", name=f"y_{a}") for a in range(A)}
         z = {o: modelo.addVar(vtype="B", name=f"z_{o}") for o in range(O)}
 
-        # Al menos un pasillo en la columna (no queremos columna vacía)
         modelo.addCons(quicksum(y[a] for a in range(A)) == k, name="al_menos_un_pasillo")
 
-        # Capacidades por item: la suma de W[o][i]*z[o] no puede exceder la suma de capacidades S[a][i] para los pasillos elegidos
         for i in range(I):
             modelo.addCons(
                 quicksum(W[o][i] * z[o] for o in range(O)) <=
@@ -249,15 +225,8 @@ class Columns(ColumnsBase):
         modelo.addCons(quicksum(units_o[o] * z[o] for o in range(O)) <= UB,
                     name="limite_unidades")
 
-        # --- FO: costo reducido con duales reales ---
-        # c_j = unidades totales seleccionadas
         expr_cj = quicksum(units_o[o] * z[o] for o in range(O))
 
-        # Dual contribution:
-        # - card_k: dual * (número de pasillos seleccionados en esta columna) => dual_card_k * sum(y[a])
-        # - orden_o: dual * z[o]
-        # - restr_total_ub: dual * total unidades
-        # - pasillo_a: dual * y[a]
         expr_Ajy = dual_vals.get("card_k", 0) * quicksum(y[a] for a in range(A)) \
             + quicksum(dual_vals.get(f"orden_{o}", 0) * z[o] for o in range(O)) \
             + dual_vals.get("restr_total_ub", 0) * quicksum(units_o[o] * z[o] for o in range(O)) \
@@ -303,7 +272,6 @@ class Columns(ColumnsBase):
 
             print(f"⌛ Iteración con {len(self.columnas.get(k, []))} columnas")
 
-            # Construir maestro y relajarlo
             maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = self.construir_modelo_maestro(k, tiempo_restante_total)
             if maestro is None:
                 print("No se pudo construir el modelo maestro a tiempo")
@@ -325,23 +293,19 @@ class Columns(ColumnsBase):
                 self.cant_var_inicio = maestro_relajado.getNVars()
                 primera_iteracion = False
 
-            # Construir mejor solución según x* del maestro
             valor_objetivo_primal = maestro_relajado.getObjVal()
             sol_actual = construir_mejor_solucion(maestro_relajado, self.columnas.get(k, []),
                                                 self.cant_var_inicio,k)
 
-            # Guardar mejor solución según productividad
             if sol_actual['productividad_por_pasillo'] > mejor_prod_global:
                 mejor_prod_global = sol_actual['productividad_por_pasillo']
                 mejor_sol_global = sol_actual
                 print("🎉🎉🎉 Mejor solución actual:", mejor_sol_global)
 
-            # Resolver subproblema con duales
             dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
             tiempo_restante_total = umbral - (time.time() - tiempo_ini)
             nueva_col = self.resolver_subproblema(self.W, self.S, dual_map, self.UB, k, tiempo_restante_total)
 
-            # Evitar columnas nulas o duplicadas
             if nueva_col is None:
                 print("No se generó columna nueva o ya existe → Fin del bucle.")
                 break
@@ -433,7 +397,6 @@ class Columns(ColumnsBase):
         best_sol = None
         tiempo_ini = time.time()
 
-        # Distribución dinámica de tiempo
         ratio_inicial = 0.25
         tiempo_inicializacion = umbral * ratio_inicial
         tiempo_final_fijo = 60
@@ -450,7 +413,6 @@ class Columns(ColumnsBase):
                 print("⏳ Sin tiempo restante para seguir evaluando k.")
                 break
 
-            # Ajustar tiempo para este k según lo que queda disponible
             tiempo_k = min(tiempo_k_estimado, tiempo_restante_total)
             print(f"Evaluando k={k} con tiempo asignado {tiempo_k:.2f} segundos")
 
@@ -485,28 +447,19 @@ class Columns(ColumnsBase):
 
     
     def Rankear(self, umbral):
-        """
-        Devuelve una lista de valores de k (cantidad de pasillos a usar),
-        cubriendo casos chicos, medianos y grandes.
-        """
-        lista_k = []
 
-        # 1) valores chicos
+        lista_k = []
         max_chicos = min(self.A, 5)
         lista_k.extend(range(1, max_chicos + 1))
 
-        # 2) valor mediano (si A es suficientemente grande)
         if self.A > 6:
             lista_k.append(self.A // 2)
 
-        # 3) valor grande
         if self.A not in lista_k:
             lista_k.append(self.A)
 
-        # Elimina duplicados y ordena
         lista_k = sorted(set(lista_k))
 
-        # Distribución de tiempo: equitativa
         tiempo_por_k = max(1.0, umbral / len(lista_k))
         lista_umbrales = [tiempo_por_k] * len(lista_k)
 

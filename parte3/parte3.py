@@ -11,14 +11,14 @@ class ModeloColumnas:
         self.archivo_input = archivo_input
         self.W, self.S, self.LB, self.UB = leer_input_func(archivo_input)
 
-        self.O = len(self.W)           # Cantidad de órdenes
-        self.I = len(self.W[0])        # Cantidad de ítems
-        self.A = len(self.S)           # Cantidad de pasillos
+        self.O = len(self.W)           
+        self.I = len(self.W[0])        
+        self.A = len(self.S)           
         self.k = max_pasillos
 
         self.max_r = max_r
         self.max_patrones = max_patrones_por_pasillo
-        self.columnas = []             # Lista de columnas/patrones
+        self.columnas = []             
         self.modelo = None
         self.x_vars = []
 
@@ -63,23 +63,19 @@ class ModeloColumnas:
             x = self.modelo.addVar(vtype="B", name=f"x_{col['pasillo']}_{idx}")
             self.x_vars.append(x)
 
-        # Cardinalidad (cantidad de pasillos)
         self.modelo.addCons(quicksum(self.x_vars) == self.k, name="card_k")
 
-        # Restricción por orden: una vez como máximo
         for o in range(self.O):
             self.modelo.addCons(
                 quicksum(self.x_vars[j] * self.columnas[j]['ordenes'][o] for j in range(len(self.x_vars))) <= 1,
                 name=f"orden_{o}"
             )
 
-        # Restricción total de unidades
         self.modelo.addCons(
             quicksum(self.x_vars[j] * self.columnas[j]['unidades'] for j in range(len(self.x_vars))) <= self.UB,
             name="restr_total_ub"
         )
 
-        # Restricciones de cobertura por ítem
         for i in range(self.I):
             self.modelo.addCons(
                 quicksum(
@@ -92,7 +88,6 @@ class ModeloColumnas:
                 name=f"cobertura_item_{i}"
             )
 
-        # Un solo patrón por pasillo
         for a in range(self.A):
             self.modelo.addCons(
                 quicksum(
@@ -101,7 +96,6 @@ class ModeloColumnas:
                 name=f"pasillo_{a}"
             )
 
-        # Objetivo: maximizar unidades cubiertas
         self.modelo.setObjective(
             quicksum(
                 self.x_vars[j] * sum(
@@ -115,7 +109,7 @@ class ModeloColumnas:
         )
 
     def AgregarColumna(self, columna):
-        self.modelo.freeTransform()  # Libera la fase de solución
+        self.modelo.freeTransform()  
 
         idx = len(self.columnas)
         self.columnas.append(columna)
@@ -153,10 +147,8 @@ class ModeloColumnas:
                     col = self.columnas[i]
                     pasillos_seleccionados.add(col['pasillo'])
 
-                    # Sumar unidades recolectadas en esta columna
                     total_unidades += col['unidades']
 
-                    # Agregar órdenes activas (donde hay un 1 en el vector 'ordenes')
                     ordenes_seleccionadas.update(
                         o for o, val in enumerate(col['ordenes']) if val == 1
                     )
@@ -183,7 +175,6 @@ if __name__ == "__main__":
     print("\n===========================================")
     print("Cantidad de columnas antes de agregar:", len(modelo.columnas))
 
-    # Agregar columna factible manualmente
     nueva_col = {
         'ordenes': [1 if o == 0 else 0 for o in range(modelo.O)],
         'pasillo': 0,

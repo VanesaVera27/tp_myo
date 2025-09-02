@@ -26,7 +26,6 @@ class Columns(ColumnsBase):
 
 
     def actualizar_historial_inactividad(self, modelo_relajado, k, umbral_iteraciones=5):
-        """Registra si las columnas estuvieron inactivas en la última iteración."""
         for idx, x in enumerate(modelo_relajado.getVars()):
             col = self.columnas[k][idx]
             key = (k, id(col))
@@ -34,7 +33,6 @@ class Columns(ColumnsBase):
             self.inactive_counter[key].append(1 if val < 1e-5 else 0)
 
     def eliminar_columnas_inactivas(self, k, umbral_iteraciones=5):
-        """Elimina columnas que estuvieron inactivas todas las últimas iteraciones."""
         nuevas_columnas, eliminadas = [], 0
         for col in self.columnas[k]:
             key = (k, id(col))
@@ -48,7 +46,6 @@ class Columns(ColumnsBase):
 
 
     def _resolver_maestro_relajado(self, maestro):
-        """Devuelve el maestro relajado y sus duales, o None si no es óptimo."""
         maestro_relajado = Model(sourceModel=maestro)
         maestro_relajado.setPresolve(SCIP_PARAMSETTING.OFF)
         maestro_relajado.setHeuristics(SCIP_PARAMSETTING.OFF)
@@ -69,21 +66,17 @@ class Columns(ColumnsBase):
 
         mejor_sol, primera_iteracion = None, True
         
-        # Parámetro para el umbral del costo reducido (ajustable)
         REDUCED_COST_TOL = 1e-6
 
         while True:
-            # Chequeo de tiempo
             tiempo_restante = self.tiempo_restante(tiempo_ini, umbral)
             if tiempo_restante <= 0:
                 break
 
-            # Construir maestro
             maestro, _, _, _, _, _ = self.construir_modelo_maestro(k, tiempo_restante)
             if maestro is None:
                 return None
 
-            # Resolver maestro relajado
             maestro_relajado, dual_map = self._resolver_maestro_relajado(maestro)
             if maestro_relajado is None:
                 break
@@ -92,29 +85,24 @@ class Columns(ColumnsBase):
                 self.cant_var_inicio = maestro_relajado.getNVars()
                 primera_iteracion = False
 
-            # Construir mejor solución entera
             mejor_sol = construir_mejor_solucion(
                 maestro_relajado, self.columnas.get(k, []),
                 maestro_relajado.getObjVal(), self.cant_var_inicio
             )
 
-            # Actualizar historial
             self.iteracion_actual[k] += 1
             self.actualizar_historial_inactividad(maestro_relajado, k)
 
-            # Generar nueva columna
             nueva_col = self.resolver_subproblema(
                 self.W, self.S, dual_map, self.UB, k, tiempo_restante
             )
 
-            # Condición de parada mejorada
             if nueva_col is None :
                 break
             
-            # Agregar columna
             self.columnas.setdefault(k, []).append(nueva_col)
 
-        # Limpieza final
+
         if self.iteracion_actual[k] >= 5:
             self.eliminar_columnas_inactivas(k)
 

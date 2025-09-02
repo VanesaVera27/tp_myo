@@ -23,7 +23,6 @@ def cargar_modulo(path):
     return mod
 
 def ejecutar_modelo(modulo, W, S, LB, UB, umbral):
-    # Detecta si tiene clase Columns o función resolver
     if hasattr(modulo, "Columns"):
         ColumnsClass = getattr(modulo, "Columns")
         solver = ColumnsClass(W, S, LB, UB)
@@ -35,7 +34,7 @@ def ejecutar_modelo(modulo, W, S, LB, UB, umbral):
         return None
 
 def ejecutar_todos_modelos(config):
-    input_base_path = os.path.abspath(config['inPath'])  # carpeta que contiene carpetas A/, B/, etc
+    input_base_path = os.path.abspath(config['inPath'])
     threshold = float(config.get('threshold', 10))  
 
     # Convertir a segundos
@@ -99,7 +98,6 @@ def ejecutar_todos_modelos(config):
                     metrica_dict[nombre_archivo] = {}
                 metrica_dict[nombre_archivo][modelo] = resultado
 
-                # Guardar output
                 nombre_archivo = nombre_archivo.split('.')[0]
                 out_file = os.path.join(out_dir, f"{nombre_archivo}.out")
 
@@ -121,7 +119,6 @@ def escribir_csv(metrica_dict, csv_path, modelos):
         ("Restricciones", 'restricciones'),
         ("# variables inicial", 'variables'),
         ("# variables en últ. maestro", 'variables_final'),
-        # ("Cota dual", 'cota_dual'),
         ("Mejor objetivo", 'valor_objetivo'),
     ]
 

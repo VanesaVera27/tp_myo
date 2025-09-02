@@ -5,11 +5,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from cargar_input import leer_input
 from guardar_output import guardar_resultado
 
-# Cargar datos desde archivo
 archivo_input = "datos_de_entrada/a/instance_0003.txt"
 W, S, LB, UB = leer_input(archivo_input)
 
-# Instanciar y ejecutar
 solver = Columns(W, S, LB, UB)
 
 resultado = solver.Opt_ExplorarCantidadPasillos(150)
@@ -21,8 +19,6 @@ if resultado:
 else:
     print("No se encontró solución con el umbral de tiempo dado.")
 
-
-# === Guardar resultados en archivo .out ===
 
 guardar_resultado(
     archivo_input=archivo_input,

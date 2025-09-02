@@ -26,7 +26,6 @@ class Columns(ColumnsBase):
             sel = [0] * self.O
             total_unidades = 0
 
-            # COLUMNA MAXIMAL para este pasillo
             for o in range(self.O):
                 if all(self.W[o][i] <= cap_restante[i] for i in range(self.I)) and \
                 (total_unidades + unidades_o[o] <= self.UB):
@@ -35,7 +34,6 @@ class Columns(ColumnsBase):
                     for i in range(self.I):
                         cap_restante[i] -= self.W[o][i]
 
-            # Solo agregar la columna si se pudo cubrir al menos una orden
             if total_unidades > 0:
                 self.columnas[k].append({
                     'pasillo': a,

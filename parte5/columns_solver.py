@@ -33,25 +33,6 @@ def construir_mejor_solucion(modelo_relajado, columnas_k, valor_obj_primal, cant
 
     return mejor_sol
 
-
-def costo_reducido(col, dual_map, W, I, O):
-    """
-    Calcula el costo reducido de una columna 'col'
-    respecto a los duales actuales del maestro relajado.
-    """
-    # costo de la columna en la FO del maestro
-    c_j = sum(W[o][i] for o in range(O) if col['ordenes'][o] for i in range(I))
-
-    # contribución dual
-    Ajy = 0
-    Ajy += dual_map.get("card_k", 0)
-    Ajy += sum(col['ordenes'][o] * dual_map.get(f"orden_{o}", 0) for o in range(O))
-    Ajy += col['unidades'] * dual_map.get("restr_total_ub", 0)
-    Ajy += dual_map.get(f"pasillo_{col['pasillo']}", 0)
-
-    return c_j - Ajy
-
-
 class Columns:
     def __init__(self, W, S, LB, UB):
         self.W = W
@@ -66,10 +47,6 @@ class Columns:
         self.cant_var_inicio = 0
 
     def inicializar_columnas_para_k(self, k, umbral=None):
-        """
-        Inicializa columnas para cada pasillo de forma más robusta,
-        encontrando un conjunto de órdenes factible y maximal heurísticamente.
-        """
         tiempo_ini = time.time()
 
         if not hasattr(self, 'columnas'):
@@ -78,7 +55,6 @@ class Columns:
         self.columnas[k] = []
         unidades_o = [sum(self.W[o]) for o in range(self.O)]
 
-        # Se ordenan las órdenes de forma aleatoria para generar una variedad de combinaciones iniciales.
         ordenes_indexadas = list(range(self.O))
         random.shuffle(ordenes_indexadas)
 
@@ -87,13 +63,10 @@ class Columns:
                 print("⏱️ Tiempo agotado durante inicialización de columnas")
                 break
             
-            # Intentar varias veces para cada pasillo para encontrar una solución inicial
-            for _ in range(5):  # Número de intentos (se puede ajustar)
+            for _ in range(5): 
                 cap_restante = list(self.S[a])
                 sel = [0] * self.O
                 total_unidades = 0
-
-                # Probar diferentes combinaciones de órdenes
                 for o in ordenes_indexadas:
                     if (unidades_o[o] + total_unidades <= self.UB) and \
                     all(self.W[o][i] <= cap_restante[i] for i in range(self.I)):
@@ -103,7 +76,6 @@ class Columns:
                         for i in range(self.I):
                             cap_restante[i] -= self.W[o][i]
                 
-                # Solo si se seleccionó al menos una orden
                 if total_unidades > 0:
                     nueva_columna = {
                         'pasillo': a,
@@ -111,7 +83,6 @@ class Columns:
                         'unidades': total_unidades
                     }
                     self.columnas[k].append(nueva_columna)
-                    break  # Se encontró una columna para este pasillo, se pasa al siguiente
 
         print(f"✅ {len(self.columnas[k])} columnas iniciales creadas para k = {k}")
 
@@ -124,7 +95,6 @@ class Columns:
         modelo.setParam('display/verblevel', 0)
         x_vars = []
 
-        # variable x_j binaria
         for idx, col in enumerate(self.columnas[k]):
             if tiempo_excedido(tiempo_ini, umbral):
                 print("⏱️ Tiempo excedido durante la creación de variables.")
@@ -220,7 +190,6 @@ class Columns:
         modelo.addCons(quicksum(units_o[o] * z[o] for o in range(O)) <= UB,
                     name="limite_unidades")
 
-        # --- FO: costo reducido con duales reales ---
         expr_cj = quicksum(units_o[o] * z[o] for o in range(O))
         expr_Ajy = dual_vals.get("card_k", 0) \
             + quicksum(dual_vals.get(f"orden_{o}", 0) * z[o] for o in range(O)) \
@@ -265,7 +234,6 @@ class Columns:
 
             print(f"⌛ Iteración con {len(self.columnas.get(k, []))} columnas")
 
-            # Construir maestro y relajarlo
             maestro, x_vars, restr_card_k, restr_ordenes, restr_ub, restr_pasillos = self.construir_modelo_maestro(k, tiempo_restante_total)
             if maestro is None:
                 print("No se pudo construir el modelo maestro a tiempo")
@@ -282,7 +250,6 @@ class Columns:
                 print("⚠️ No se encontró solución. Estado del modelo:", maestro_relajado.getStatus())
                 break
 
-            # Obtener duales reales del maestro relajado
             dual_map = {cons.name: maestro_relajado.getDualSolVal(cons) for cons in maestro_relajado.getConss()}
 
             if primera_iteracion:
@@ -292,15 +259,13 @@ class Columns:
 
             valor_objetivo_primal = maestro_relajado.getObjVal()
 
-            # Construir mejor solución según x* del maestro
             mejor_sol = construir_mejor_solucion(maestro_relajado, self.columnas.get(k, []), valor_objetivo_primal, self.cant_var_inicio)
             
 
-            # Resolver subproblema con duales
             tiempo_restante_total = umbral - (time.time() - tiempo_ini)
             nueva_col = self.resolver_subproblema(self.W, self.S, dual_map, self.UB, k, tiempo_restante_total)
 
-            # Evitar columnas nulas o duplicadas
+
             if nueva_col is None :
                 print("No se generó columna nueva → Fin del bucle.")
                 break
@@ -318,18 +283,15 @@ class Columns:
         k = len(self.pasillos_fijos)
         solucion_vacia = {"valor_objetivo": 0,"pasillos_seleccionados": set(),"ordenes_seleccionadas": set(),"restricciones": 0,"variables": 0,"variables_final": 0,"cota_dual": 0}
         
-        # Calcular tiempo restante correctamente (usamos tiempo_ini para referencia)
         tiempo_restante_final = umbral - (time.time() - tiempo_ini)
         if tiempo_restante_final <= 0:
             print("⏳ No queda tiempo para Opt_PasillosFijos")
             return solucion_vacia
 
-        # Validar que haya columnas para k
         if k not in self.columnas or not self.columnas[k]:
             print(f"❌ No hay columnas generadas para k = {k}")
             return solucion_vacia
 
-        # Construir el modelo maestro con las columnas actuales
         modelo, x_vars, _, _, _, _ = self.construir_modelo_maestro(k, tiempo_restante_final)
 
         if modelo is None:
@@ -385,7 +347,6 @@ class Columns:
         best_sol = None
         tiempo_ini = time.time()
 
-        # Obtener lista de valores k y tiempos asignados a cada uno según Rankear()
         lista_k, lista_umbrales = self.Rankear(umbral)
 
         for k, tiempo_k in zip(lista_k, lista_umbrales):
@@ -448,13 +409,9 @@ class Columns:
 
 
     def Rankear(self, umbral):
-        # Calcular la capacidad total por pasillo
         capacidades = [sum(self.S[a]) for a in range(self.A)]
-        # Ordenar los pasillos por capacidad de mayor a menor
         pasillos_ordenados = sorted(range(1, self.A + 1), key=lambda a: capacidades[a-1], reverse=True)
         lista_k = pasillos_ordenados
-
-        # Tiempo asignado por k, equitativamente
         tiempo_por_k = umbral 
         lista_umbrales = [tiempo_por_k] * len(lista_k)
 
