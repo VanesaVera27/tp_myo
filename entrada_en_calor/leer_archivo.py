@@ -1,17 +1,5 @@
 from clases import Item, Bolsita, Contenedor, Parametros
 
-# Formato del archivo de entrada:
-# - Primera línea: o (bolsitas), i (tipos de ítems), a (contenedores)
-
-# - Siguientes o líneas: cada una indica una bolsita:
-#     k seguido de k pares (tipo_item, cantidad)
-
-# - Siguientes a líneas: cada una indica un contenedor:
-#     l seguido de l pares (tipo_item, cantidad)
-
-# Se asume beneficio = 1 para todos los ítems
-
-
 def cargar_parametros_desde_archivo(path: str) -> Parametros:
     with open(path, "r") as f:
         lines = [line.strip() for line in f.readlines() if line.strip()]
