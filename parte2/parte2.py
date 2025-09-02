@@ -45,7 +45,7 @@ if __name__ == "__main__":
     archivo_input = "datos_de_entrada/A/instance_0020.txt"
     W, S, LB, UB = leer_input(archivo_input)
 
-    pasillos = [2, 4, 0, 4]  # pasillos seleccionados manualmente
+    pasillos = [2, 4, 0, 4]  
     n_ordenes = len(W)
 
     modelo, x_vars = crear_modelo(W, S, LB, UB, pasillos)
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     else:
         print("No se encontró solución óptima.")
 
-    # Guardar resultados
+
     guardar_resultado_simple(
         archivo_input=archivo_input,
         parte="parte2",
